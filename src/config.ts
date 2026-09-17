@@ -126,6 +126,18 @@ function validateConfig(config: BotConfig): void {
     errors.push('Komisyon oranları negatif olamaz');
   }
 
+  // R-04 FIX: Ağırlıklı RR'ın minRRRatio'yu geçip geçemeyeceğini baştan kontrol et
+  const weightedRR = (config.tp1RR * 0.5) + (config.tp2RR * 0.5);
+  if (weightedRR < config.minRRRatio) {
+    errors.push(`Ağırlıklı R:R (${weightedRR.toFixed(2)}) < minRRRatio (${config.minRRRatio}) — tüm sinyaller reddedilecek!`);
+  }
+
+  // C-02 FIX: Spot piyasada SHORT desteklenmez — uyarı
+  if (config.marketType === 'spot') {
+    // Hata fırlatma, sadece bilgilendirme (strateji motorunda engellenecek)
+    console.warn('⚠️  Spot piyasada SHORT sinyalleri desteklenmez. Sadece LONG sinyalleri işlenecektir.');
+  }
+
   const validTF = ['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M'];
   if (!validTF.includes(config.htfTimeframe)) {
     errors.push(`htfTimeframe = "${config.htfTimeframe}" — geçerli değil`);

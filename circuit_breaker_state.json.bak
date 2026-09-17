@@ -1,8 +1,20 @@
 {
-  "consecutiveLosses": 0,
-  "dailyPnL": 0,
+  "consecutiveLosses": 1,
+  "dailyPnL": -34.42105758500004,
   "dailyStartBalance": 3443.14209696,
   "dailyDate": "2026-09-17",
   "isTripped": false,
-  "tradeHistory": []
+  "tradeHistory": [
+    {
+      "timestamp": 1789669238971,
+      "symbol": "BR/USDT",
+      "direction": "LONG",
+      "entryPrice": 0.68569,
+      "exitPrice": 0.66935,
+      "quantity": 2045,
+      "pnl": -34.42105758500004,
+      "isWin": false,
+      "exitReason": "STOP_LOSS"
+    }
+  ]
 }

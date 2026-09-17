@@ -24,9 +24,18 @@ import { analyzeMarketStructure } from '../strategy/market_structure.js';
 import { getExchange } from '../exchange/binance_client.js';
 import { floorToStepSize, roundToTickSize } from '../utils/candle_utils.js';
 import { logger } from '../utils/logger.js';
+import { saveActiveTrades, loadActiveTrades as loadActiveTradesFromDisk } from './trade_persistence.js';
 
-// Çift bazlı aktif işlemler (Multi-Pair)
-const activeTrades = new Map<string, ActiveTrade>();
+// Çift bazlı aktif işlemler (Multi-Pair) — diskten yüklenir, her değişiklikte diske yazılır
+let activeTrades = new Map<string, ActiveTrade>();
+
+/**
+ * Bot başlangıcında diskten aktif işlemleri yükler.
+ * index.ts'ten initExchange() sonrası çağrılmalı.
+ */
+export function initActiveTrades(): void {
+  activeTrades = loadActiveTradesFromDisk();
+}
 
 export function getActiveTrade(symbol: string): ActiveTrade | null {
   return activeTrades.get(symbol) ?? null;
@@ -38,6 +47,18 @@ export function hasActiveTrade(symbol: string): boolean {
 
 export function getAllActiveTrades(): Map<string, ActiveTrade> {
   return activeTrades;
+}
+
+/** activeTrades'e ekle ve diske yaz */
+function persistSet(symbol: string, trade: ActiveTrade): void {
+  activeTrades.set(symbol, trade);
+  saveActiveTrades(activeTrades);
+}
+
+/** activeTrades'ten sil ve diske yaz */
+function persistDelete(symbol: string): void {
+  activeTrades.delete(symbol);
+  saveActiveTrades(activeTrades);
 }
 
 /**
@@ -81,7 +102,7 @@ export async function openTrade(
     logger.info('ORDER', `  Tetik: ${signal.triggerType} | ${signal.reason}`);
     logger.separator();
 
-    activeTrades.set(symbol, createVirtualTrade(signal, quantity, entryPrice, tpLevels));
+    persistSet(symbol, createVirtualTrade(signal, quantity, entryPrice, tpLevels));
     return;
   }
 
@@ -112,7 +133,7 @@ export async function openTrade(
     // SL emri burada baştan gönderilmeyecek! Partial fill / dolum anında manageActiveTrade içinde gönderilecek.
     logger.info('ORDER', `🛡️ [${symbol}] SL emri dolum (fill) beklentisiyle beklemeye alındı.`);
 
-    activeTrades.set(symbol, {
+    persistSet(symbol, {
       symbol,
       entryOrder: entryManaged,
       stopLossOrder: undefined, // Dolum gelene kadar undefined
@@ -259,6 +280,14 @@ export async function placeSLOrder(
       slLimitPrice = undefined;
       slParams.reduceOnly = true;
     } else {
+      // L-05 FIX: Spot SL — limit fiyatını stopPrice'tan offset kadar kaydır.
+      // Gap (ani hareket) durumunda emrin dolma şansını artırır.
+      const slOffset = constraints.tickSize * (config.slippageTicks + 1);
+      if (trade.signal.direction === 'LONG') {
+        slLimitPrice = roundToTickSize(slPrice - slOffset, constraints.tickSize);
+      } else {
+        slLimitPrice = roundToTickSize(slPrice + slOffset, constraints.tickSize);
+      }
       slParams.timeInForce = 'GTC';
     }
 
@@ -367,7 +396,7 @@ export async function cancelGhostOrders(symbol: string, config: BotConfig): Prom
 
   if (config.dryRun) {
     logger.info('CANCEL', `🧪 [${symbol}] ${ordersToCancel.length} ghost emir iptal simülasyonu`);
-    activeTrades.delete(symbol);
+    persistDelete(symbol);
     return;
   }
 
@@ -381,48 +410,70 @@ export async function cancelGhostOrders(symbol: string, config: BotConfig): Prom
     }
   }
 
-  activeTrades.delete(symbol);
+  persistDelete(symbol);
 }
 
 /**
  * Açık emirlerin durumunu borsadan senkronize eder.
+ * R-02 FIX: Tek fetchOpenOrders() çağrısı ile batch senkronizasyon.
  */
 export async function syncOrderStatuses(symbol: string, config: BotConfig): Promise<void> {
   const trade = activeTrades.get(symbol);
   if (!trade || config.dryRun) return;
 
   const exchange = getExchange();
-  const orders = [trade.entryOrder, trade.stopLossOrder, trade.tp1Order, trade.tp2Order]
+  const managedOrders = [trade.entryOrder, trade.stopLossOrder, trade.tp1Order, trade.tp2Order]
     .filter((o): o is ManagedOrder => o !== undefined && o.status === 'OPEN');
 
-  for (const mo of orders) {
-    try {
-      const live = await exchange.fetchOrder(mo.id, symbol);
+  if (managedOrders.length === 0) return;
+
+  try {
+    // Tek API çağrısı ile tüm açık emirleri al
+    const liveOpenOrders = await exchange.fetchOpenOrders(symbol);
+    const openOrderIds = new Set(liveOpenOrders.map(o => o.id));
+
+    for (const mo of managedOrders) {
       const prev = mo.status;
-      mo.filledQuantity = live.filled ?? 0;
+
+      if (openOrderIds.has(mo.id)) {
+        // Emir hâlâ açık — filled miktarını güncelle
+        const liveOrder = liveOpenOrders.find(o => o.id === mo.id);
+        if (liveOrder) {
+          mo.filledQuantity = liveOrder.filled ?? 0;
+          if ((liveOrder.filled ?? 0) > 0) mo.status = 'PARTIALLY_FILLED';
+        }
+      } else {
+        // Emir artık açık değil — fetchOrder ile kesin durumu al
+        try {
+          const closedOrder = await exchange.fetchOrder(mo.id, symbol);
+          mo.filledQuantity = closedOrder.filled ?? 0;
+          if (closedOrder.status === 'closed') mo.status = 'FILLED';
+          else if (closedOrder.status === 'canceled') mo.status = 'CANCELLED';
+        } catch (e: any) {
+          if (e.message?.includes('-2013') || e.message?.includes('Order does not exist')) {
+            logger.debug('ORDER', `[${symbol}] ${mo.id} borsada bulunamadı. Tetiklenmiş kabul ediliyor.`);
+            mo.status = mo.type === 'ENTRY' ? 'CANCELLED' : 'FILLED';
+          } else {
+            logger.debug('ORDER', `[${symbol}] ${mo.id} durumu sorgulanamadı: ${e.message}`);
+          }
+        }
+      }
+
       mo.updatedAt = Date.now();
-
-      if (live.status === 'closed') mo.status = 'FILLED';
-      else if (live.status === 'canceled') mo.status = 'CANCELLED';
-      else if ((live.filled ?? 0) > 0 && live.status === 'open') mo.status = 'PARTIALLY_FILLED';
-
       if (mo.status !== prev) {
         logger.info('FILL', `[${symbol}] ${mo.type}: ${prev} → ${mo.status} (${mo.filledQuantity}/${mo.quantity})`);
       }
-    } catch (e: any) {
-      if (e.message.includes('-2013') || e.message.includes('Order does not exist')) {
-        logger.debug('ORDER', `[${symbol}] ${mo.id} borsada bulunamadı (-2013). Tetiklenmiş veya silinmiş kabul ediliyor.`);
-        mo.status = mo.type === 'ENTRY' ? 'CANCELLED' : 'FILLED';
-        mo.updatedAt = Date.now();
-      } else {
-        logger.debug('ORDER', `[${symbol}] ${mo.id} durumu sorgulanamadı: ${e.message}`);
-      }
     }
+
+    // Durum değişikliğini diske yaz
+    saveActiveTrades(activeTrades);
+  } catch (e: any) {
+    logger.debug('ORDER', `[${symbol}] Emir senkronizasyonu başarısız: ${e.message}`);
   }
 }
 
 export function clearActiveTrade(symbol: string): void {
-  activeTrades.delete(symbol);
+  persistDelete(symbol);
 }
 
 async function cleanupOrders(symbol: string): Promise<void> {
@@ -433,7 +484,7 @@ async function cleanupOrders(symbol: string): Promise<void> {
       await exchange.cancelOrder(o.id!, symbol);
     }
   } catch { /* ignore */ }
-  activeTrades.delete(symbol);
+  persistDelete(symbol);
 }
 
 function createVirtualTrade(
@@ -506,6 +557,8 @@ export async function manageActiveTrade(
     if (setupBroken) {
       logger.warn('ORDER', `[${symbol}] 👻 GHOST EMİR: ${cancelReason}. Pusu iptal ediliyor...`);
       await cancelGhostOrders(symbol, config);
+      // C-05 FIX: Ghost cancel bir gerçek kayıp değil.
+      // tradeHistory'ye kaydedilir ama consecutiveLosses artırılmaz.
       recordTradeResult(cbState, {
         timestamp: Date.now(),
         symbol,
@@ -514,7 +567,7 @@ export async function manageActiveTrade(
         exitPrice: trade.entryOrder.price,
         quantity: 0,
         pnl: 0,
-        isWin: false,
+        isWin: true,  // C-05 FIX: Ghost cancel'ı kayıp olarak sayma
         exitReason: 'GHOST_CANCEL',
       }, config);
       return;
@@ -558,41 +611,38 @@ export async function manageActiveTrade(
     }
 
     // 3.0.5 TP Emirlerini Yerleştir (Kısmi Başarısızlıkları Önle)
-    if (trade.tp1Price && trade.tp2Price && trade.tp1Quantity && trade.tp2Quantity) {
+    // C-03 FIX: TP emirleri bir kez yerleştirilir. Zaten varsa tekrar hesaplama yapılmaz.
+    if (trade.tp1Price && trade.tp2Price && trade.tp1Quantity && trade.tp2Quantity
+        && !trade.tp1Order && !trade.tp2Order) {
+
+      const filledQty = trade.entryOrder.filledQuantity;
+      const minNotional = Math.max(constraints.minNotional, 5);
+
+      // Kısmi dolum oranı ile TP miktarlarını hesapla
+      const ratio = filledQty / trade.entryOrder.quantity;
+      let tp1Qty = floorToStepSize(trade.tp1Quantity * ratio, constraints.stepSize);
+      let tp2Qty = floorToStepSize(filledQty - tp1Qty, constraints.stepSize);
+
+      // C-03 FIX: minNotional kontrolü — gerekirse tek TP'ye birleştir
+      let shouldCombine = false;
+      if (tp1Qty > 0 && tp1Qty * trade.tp1Price < minNotional) shouldCombine = true;
+      if (tp2Qty > 0 && tp2Qty * trade.tp2Price < minNotional) shouldCombine = true;
+
       const tpLevels: TakeProfitLevels = {
         tp1Price: trade.tp1Price,
         tp2Price: trade.tp2Price,
-        tp1Quantity: trade.tp1Quantity,
-        tp2Quantity: trade.tp2Quantity,
+        tp1Quantity: shouldCombine ? filledQty : trade.tp1Quantity,  // C-03 FIX: filledQty kullan, orijinal quantity değil
+        tp2Quantity: shouldCombine ? 0 : trade.tp2Quantity,
         riskRewardTP1: config.tp1RR,
         riskRewardTP2: config.tp2RR,
         isValid: true,
       };
 
-      // Tek TP ile birleştirme (minNotional koruması)
-      const ratio = trade.entryOrder.filledQuantity / trade.entryOrder.quantity;
-      const tp1Qty = floorToStepSize(trade.tp1Quantity * ratio, constraints.stepSize);
-      const tp2Qty = floorToStepSize(trade.entryOrder.filledQuantity - tp1Qty, constraints.stepSize);
-      
-      const minNotional = Math.max(constraints.minNotional, 5);
-      
-      // Eğer TP1 veya TP2'den biri minNotional altında kalıyorsa, hepsini TP1'e taşı (Sadece biri oluşturulacak)
-      let shouldCombine = false;
-      if (tp1Qty > 0 && tp1Qty * trade.tp1Price < minNotional) shouldCombine = true;
-      if (tp2Qty > 0 && tp2Qty * trade.tp2Price < minNotional) shouldCombine = true;
-
-      if (shouldCombine && !trade.tp1Order && !trade.tp2Order) {
-        // Tüm miktarı TP1'de birleştir
-        tpLevels.tp1Quantity = trade.entryOrder.quantity; // Orijinal miktar
-        tpLevels.tp2Quantity = 0;
-        logger.warn('ORDER', `[${symbol}] Kısmi dolum miktar küçük, TP hedefleri birleştiriliyor.`);
-        await placeTPOrders(symbol, tpLevels, trade.entryOrder.filledQuantity, config, constraints);
-      } else {
-        // Sızıntıyı önleyen ayrı kontroller
-        if (!trade.tp1Order || !trade.tp2Order) {
-           await placeTPOrders(symbol, tpLevels, trade.entryOrder.filledQuantity, config, constraints);
-        }
+      if (shouldCombine) {
+        logger.warn('ORDER', `[${symbol}] Miktar küçük, TP hedefleri birleştiriliyor (toplam: ${filledQty}).`);
       }
+
+      await placeTPOrders(symbol, tpLevels, filledQty, config, constraints);
     }
 
     // 3.1 Dry-run fiyat tetiklemelerini simüle et

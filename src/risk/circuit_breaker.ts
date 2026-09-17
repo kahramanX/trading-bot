@@ -129,6 +129,14 @@ export function recordTradeResult(
   newState.tradeHistory.push(result);
   newState.dailyPnL += result.pnl;
 
+  // C-05 FIX: Ghost cancel bir gerçek işlem değil — consecutiveLosses'ı etkilememeli
+  if (result.exitReason === 'GHOST_CANCEL') {
+    // Sadece tradeHistory'ye kaydedildi, sayaçlara dokunulmadı
+    logger.info('GUARD', `⚪ [${result.symbol}] Ghost cancel kaydedildi (sayaçları etkilemez).`);
+    saveState(newState);
+    return newState;
+  }
+
   if (!result.isWin) {
     newState.consecutiveLosses += 1;
   } else {

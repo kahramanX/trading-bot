@@ -173,12 +173,42 @@ export function floorToStepSize(quantity: number, stepSize: number): number {
 }
 
 /**
- * Ondalık basamak sayısını hesaplar.
+ * Ondalık basamak sayısını güvenli şekilde hesaplar.
+ * JavaScript float tuzaklarını (bilimsel notasyon, aritmetik artifakt) handle eder.
+ *
+ * Örnekler:
+ *   countDecimals(0.001)   → 3
+ *   countDecimals(1e-8)    → 8   (eski hali 0 dönerdi!)
+ *   countDecimals(0.1+0.2) → 1   (eski hali 17 dönerdi!)
+ *   countDecimals(100)     → 0
  */
 function countDecimals(value: number): number {
+  if (!Number.isFinite(value) || value === 0) return 0;
+
+  // Bilimsel notasyon kontrolü (1e-8, 5e-6 vb.)
   const str = value.toString();
-  if (str.includes('.')) {
-    return str.split('.')[1]!.length;
+  if (str.includes('e-')) {
+    const parts = str.split('e-');
+    const mantissaDecimals = parts[0]!.includes('.')
+      ? parts[0]!.split('.')[1]!.length
+      : 0;
+    return parseInt(parts[1]!, 10) + mantissaDecimals;
   }
+
+  if (str.includes('e+') || str.includes('e')) {
+    // Büyük sayılar (1e+10 vb.) — ondalık yok
+    return 0;
+  }
+
+  if (str.includes('.')) {
+    // Float aritmetik artifaktlarını temizle:
+    // 0.30000000000000004 → gerçek hassasiyet 1
+    // Strateji: trailing sıfır ve gürültüyü kes (max 10 basamak)
+    const decimalPart = str.split('.')[1]!;
+    // 10 basamaktan fazla hassasiyet borsa için gereksiz
+    const trimmed = decimalPart.slice(0, 10).replace(/0+$/, '');
+    return trimmed.length || 1;
+  }
+
   return 0;
 }

@@ -12,6 +12,32 @@ let exchange: BinanceExchange | null = null;
 const constraintsCache = new Map<string, SymbolConstraints>();
 
 /**
+ * R-05 FIX: Exponential backoff retry wrapper.
+ * Sadece okuma (read) işlemlerinde kullanılır.
+ * Yaz (write) işlemlerinde (emir gönderme) ÇİFT EMİR riski nedeniyle KULLANILMAZ.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries: number = 3,
+): Promise<T> {
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries) {
+        const waitMs = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+        logger.warn('SYSTEM', `${label} başarısız (deneme ${attempt}/${maxRetries}): ${lastError.message}. ${waitMs / 1000}s sonra tekrar...`);
+        await new Promise(r => setTimeout(r, waitMs));
+      }
+    }
+  }
+  throw lastError!;
+}
+
+/**
  * Binance Testnet exchange instance'ını başlatır.
  * loadMarkets() ile tüm piyasa bilgilerini yükler.
  */
@@ -174,7 +200,7 @@ export async function getSymbolConstraints(symbol: string): Promise<SymbolConstr
 }
 
 /**
- * OHLCV mum verisi çeker. Rate limit ccxt tarafından yönetilir.
+ * OHLCV mum verisi çeker. R-05 FIX: Retry mekanizması dahil.
  */
 export async function fetchCandles(
   symbol: string,
@@ -182,7 +208,10 @@ export async function fetchCandles(
   limit: number = 200,
 ): Promise<Candle[]> {
   const ex = getExchange();
-  const ohlcv = await ex.fetchOHLCV(symbol, timeframe, undefined, limit);
+  const ohlcv = await withRetry(
+    () => ex.fetchOHLCV(symbol, timeframe, undefined, limit),
+    `fetchCandles(${symbol}, ${timeframe})`,
+  );
 
   if (!ohlcv || ohlcv.length === 0) {
     logger.warn('SYSTEM', `Mum verisi alınamadı: ${symbol} ${timeframe}`);
@@ -194,18 +223,27 @@ export async function fetchCandles(
 
 export async function getFreeBalance(asset: string = 'USDT'): Promise<number> {
   const ex = getExchange();
-  const balance = await ex.fetchBalance();
+  const balance = await withRetry(
+    () => ex.fetchBalance(),
+    `getFreeBalance(${asset})`,
+  );
   return Number(balance[asset]?.free ?? 0);
 }
 
 export async function getTotalBalance(asset: string = 'USDT'): Promise<number> {
   const ex = getExchange();
-  const balance = await ex.fetchBalance();
+  const balance = await withRetry(
+    () => ex.fetchBalance(),
+    `getTotalBalance(${asset})`,
+  );
   return Number(balance[asset]?.total ?? 0);
 }
 
 export async function getCurrentPrice(symbol: string): Promise<number> {
   const ex = getExchange();
-  const ticker = await ex.fetchTicker(symbol);
+  const ticker = await withRetry(
+    () => ex.fetchTicker(symbol),
+    `getCurrentPrice(${symbol})`,
+  );
   return ticker.last ?? 0;
 }

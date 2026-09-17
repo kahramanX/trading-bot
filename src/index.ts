@@ -10,7 +10,7 @@ import { loadState, isCircuitBreakerTripped, logCircuitBreakerStatus } from './r
 import { runEntryEngine } from './strategy/entry_engine.js';
 import { calculatePositionSize } from './risk/position_sizer.js';
 import { calculateTakeProfitLevels } from './risk/take_profit.js';
-import { hasActiveTrade, openTrade, manageActiveTrade } from './orders/order_manager.js';
+import { hasActiveTrade, openTrade, manageActiveTrade, initActiveTrades } from './orders/order_manager.js';
 import type { CircuitBreakerState } from './utils/types.js';
 import { logger } from './utils/logger.js';
 import { msUntilNextCandleClose } from './utils/candle_utils.js';
@@ -35,6 +35,9 @@ async function mainLoop(): Promise<void> {
 
   // ─── Exchange Bağlantısı (tüm çiftlerin constraints'leri yüklenir) ─
   await initExchange(config);
+
+  // ─── C-01 FIX: Diskten aktif işlemleri yükle (restart dayanıklılığı) ─
+  initActiveTrades();
 
   // ─── Daemon Döngüsü ──────────────────────────────────────
   while (isRunning) {
@@ -116,8 +119,11 @@ async function analyzeSymbol(
   const constraints = await getSymbolConstraints(symbol);
 
   // Mum verileri çek
-  const htfCandles = await fetchCandles(symbol, config.htfTimeframe, 250);
-  const ltfCandles = await fetchCandles(symbol, config.ltfTimeframe, 200);
+  // L-04 FIX: Son mumu (henüz kapanmamış) çıkar — unstable veri ile karar verme
+  const htfCandlesRaw = await fetchCandles(symbol, config.htfTimeframe, 251);
+  const ltfCandlesRaw = await fetchCandles(symbol, config.ltfTimeframe, 201);
+  const htfCandles = htfCandlesRaw.slice(0, -1);  // Kapanmamış mumu çıkar
+  const ltfCandles = ltfCandlesRaw.slice(0, -1);  // Kapanmamış mumu çıkar
 
   if (htfCandles.length < 20) {
     logger.warn('SYSTEM', `[${symbol}] HTF veri yetersiz: ${htfCandles.length}/20`);

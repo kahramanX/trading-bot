@@ -11,6 +11,7 @@ import { analyzeMarketStructure, logMarketStructure } from './market_structure.j
 import { getNearestActiveFVG, getLatestActiveFVG, isPriceInFVG, logFVGStatus } from './fair_value_gap.js';
 import { getActiveBreakerBlocks, getLatestActiveBreakerBlock, isPriceInBreakerBlock, hasConfluence, logBreakerBlockStatus } from './breaker_block.js';
 import { calculateStopLoss } from '../risk/stop_loss.js';
+import { calculateATR } from '../utils/candle_utils.js';
 import { logger } from '../utils/logger.js';
 import { playSound } from '../utils/sound_player.js';
 
@@ -54,6 +55,11 @@ export function runEntryEngine(
 
   const direction = htfResult.bias === 'BULLISH' ? 'LONG' : 'SHORT';
   const fvgDirection = htfResult.bias;
+
+  // C-02 FIX: Spot piyasada SHORT desteklenmez
+  if (config.marketType === 'spot' && direction === 'SHORT') {
+    return noSignal(`[${symbol}] Spot piyasada SHORT desteklenmez. Sinyal atlandı.`, 'SPOT_SHORT_BLOCK');
+  }
 
   // ─── Adım 2: LTF Market Structure + MSS ──────────────────
   const ltfStructure = analyzeMarketStructure(ltfCandles, 5, 5);
@@ -116,7 +122,18 @@ export function runEntryEngine(
       confidence = 0.65;
       logger.info('ENGINE', `[${symbol}] 📐 Fiyat FVG bölgesinde: ${logger.formatUSD(targetFVG.low)} — ${logger.formatUSD(targetFVG.high)}`);
     } else {
-      // Fiyat henüz FVG'ye gelmedi — pusu kurulabilir
+      // L-01 FIX: Fiyat FVG'ye gelmedi — proximity (yakınlık) kontrolü yap
+      const atr = calculateATR(ltfCandles) ?? 0;
+      const distanceToFVG = Math.abs(currentPrice - targetFVG.midpoint);
+      const maxDistance = atr * 3; // ATR(14) × 3'ten uzaksa çok uzak
+
+      if (atr > 0 && distanceToFVG > maxDistance) {
+        return noSignal(
+          `[${symbol}] FVG çok uzak: mesafe ${distanceToFVG.toFixed(2)} > ATR×3 (${maxDistance.toFixed(2)}). Pusu atlandı.`,
+          'FVG_TOO_FAR'
+        );
+      }
+
       entryPrice = targetFVG.midpoint;
       triggerType = 'FVG';
       zoneEdge = direction === 'LONG' ? targetFVG.low : targetFVG.high;
