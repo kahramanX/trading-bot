@@ -70,8 +70,11 @@ export function loadConfig(): BotConfig {
   const tradingPairs = parseTradingPairs(rawPairs);
 
   const config: BotConfig = {
-    apiKey:    requireEnv('BINANCE_TESTNET_API_KEY'),
-    apiSecret: requireEnv('BINANCE_TESTNET_SECRET'),
+    apiKey:    requireEnv('BINANCE_API_KEY'),
+    apiSecret: requireEnv('BINANCE_SECRET'),
+    network:   (['live', 'demo'].includes(process.env['NETWORK']?.trim().toLowerCase() || '') ? process.env['NETWORK']?.trim().toLowerCase() as 'live' | 'demo' : 'testnet'),
+    marketType: (process.env['MARKET_TYPE']?.trim().toLowerCase() === 'futures' ? 'futures' : 'spot'),
+    leverage:   envInt('FUTURES_LEVERAGE', 1),
 
     tradingPairs,
 

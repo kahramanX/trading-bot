@@ -186,6 +186,9 @@ export interface BotConfig {
   // API
   apiKey: string;
   apiSecret: string;
+  network: 'testnet' | 'live' | 'demo';
+  marketType: 'spot' | 'futures';
+  leverage: number;
 
   // Trading — Multi-Pair desteği
   tradingPairs: string[];       // Virgülle ayrılmış çift listesi

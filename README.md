@@ -133,9 +133,12 @@ cp .env.example .env
 
 `.env` dosyasını Binance Spot Testnet anahtarlarınla düzenle:
 ```env
-# Binance Spot Testnet API Credentials (https://testnet.binance.vision)
-BINANCE_TESTNET_API_KEY=your_api_key_here
-BINANCE_TESTNET_SECRET=your_secret_here
+# Ağ Seçimi (Testnet veya Live)
+NETWORK=testnet
+
+# Binance API Credentials
+BINANCE_API_KEY=your_api_key_here
+BINANCE_SECRET=your_secret_here
 
 # Çoklu İşlem Çiftleri (Virgülle ayrılmış liste)
 TRADING_PAIRS=BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,AVAX/USDT,LINK/USDT
@@ -170,8 +173,8 @@ Borsaya emir göndermeden canlı testnet verisi üzerinde tüm stratejiyi çalı
 npm run dry-run
 ```
 
-### 🚀 Canlı Testnet Modu
-Testnet üzerinde gerçek emirleri açar, stop-loss ve TP'leri borsaya iletir:
+### 🚀 Canlı / Mock Modu
+Testnet veya Live Binance hesabınız üzerinde (`NETWORK` ayarına göre) gerçek emirleri açar:
 ```bash
 npm run dev
 ```

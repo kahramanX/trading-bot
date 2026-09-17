@@ -23,17 +23,44 @@ export async function initExchange(config: BotConfig): Promise<BinanceExchange> 
     secret: config.apiSecret,
     enableRateLimit: true,
     options: {
-      defaultType: 'spot',
+      defaultType: config.marketType === 'futures' ? 'future' : 'spot',
       adjustForTimeDifference: true,
     },
   });
 
-  exchange.setSandboxMode(true);
-  logger.info('SYSTEM', `Binance Spot Testnet bağlantısı kuruluyor...`);
+  if (config.network === 'testnet') {
+    exchange.setSandboxMode(true);
+    logger.info('SYSTEM', `Binance Spot Testnet bağlantısı kuruluyor...`);
+  } else if (config.network === 'demo') {
+    exchange.urls.test = exchange.urls.demo;
+    exchange.setSandboxMode(true);
+    logger.info('SYSTEM', `Binance Spot DEMO (Mock Trading) bağlantısı kuruluyor...`);
+  } else {
+    logger.info('SYSTEM', `Binance Spot LIVE (Gerçek Para) bağlantısı kuruluyor...`);
+  }
 
   // ─── loadMarkets() zorunlu — tüm sembol bilgilerini yükle ─
   await exchange.loadMarkets();
   logger.info('SYSTEM', `✅ Piyasa bilgileri yüklendi: ${Object.keys(exchange.markets ?? {}).length} sembol`);
+
+  // ─── Futures ayarları: Margin ve Kaldıraç ─────────────────
+  if (config.marketType === 'futures') {
+    logger.info('SYSTEM', `⚙️ Vadeli İşlemler yapılandırılıyor... Marjin: Isolated | Kaldıraç: ${config.leverage}x`);
+    for (const symbol of config.tradingPairs) {
+      try {
+        await exchange.setMarginMode('isolated', symbol);
+      } catch (e: any) {
+        if (!e.message.includes('No need to change margin type')) {
+          logger.warn('SYSTEM', `  ⚠️ ${symbol} margin mode ayarlanamadı: ${e.message}`);
+        }
+      }
+      try {
+        await exchange.setLeverage(config.leverage, symbol);
+      } catch (e: any) {
+        logger.warn('SYSTEM', `  ⚠️ ${symbol} kaldıraç ayarlanamadı: ${e.message}`);
+      }
+    }
+  }
 
   // ─── Bağlantı Testi ──────────────────────────────────────
   try {
@@ -44,7 +71,7 @@ export async function initExchange(config: BotConfig): Promise<BinanceExchange> 
     logger.info('SYSTEM', `✅ Bağlantı başarılı! Kasa: ${logger.formatUSD(Number(free))} serbest / ${logger.formatUSD(Number(total))} toplam USDT`);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    throw new Error(`❌ Binance Testnet bağlantı hatası: ${msg}`);
+    throw new Error(`❌ Binance bağlantı hatası: ${msg}`);
   }
 
   // ─── Tüm konfigüre edilmiş çiftlerin constraints'lerini preload et

@@ -111,9 +111,13 @@ export async function openTrade(
     const slSide = signal.direction === 'LONG' ? 'sell' : 'buy';
     const slPrice = roundToTickSize(signal.stopLoss, constraints.tickSize);
 
+    const slParams: any = { stopPrice: slPrice, timeInForce: 'GTC' };
+    if (config.marketType === 'futures') {
+      slParams.reduceOnly = true;
+    }
+
     const slOrder = await exchange.createOrder(
-      symbol, 'STOP_LOSS_LIMIT', slSide, quantity, slPrice,
-      { stopPrice: slPrice, timeInForce: 'GTC' },
+      symbol, 'STOP_LOSS_LIMIT', slSide, quantity, slPrice, slParams,
     );
 
     const slManaged: ManagedOrder = {
@@ -201,9 +205,14 @@ export async function placeTPOrders(
   const minNotional = Math.max(constraints.minNotional, 5);
 
   try {
+    const tpParams: any = {};
+    if (config.marketType === 'futures') {
+      tpParams.reduceOnly = true;
+    }
+
     if (tp1Qty > 0 && tp1Qty * tpLevels.tp1Price >= minNotional) {
       const tp1Price = roundToTickSize(tpLevels.tp1Price, constraints.tickSize);
-      const tp1Order = await exchange.createLimitOrder(symbol, side, tp1Qty, tp1Price);
+      const tp1Order = await exchange.createOrder(symbol, 'limit', side, tp1Qty, tp1Price, tpParams);
       trade.tp1Order = {
         id: tp1Order.id ?? '', clientOrderId: `tp1_${Date.now()}`, symbol,
         type: 'TAKE_PROFIT_1', side, price: tp1Price, quantity: tp1Qty,
@@ -214,7 +223,7 @@ export async function placeTPOrders(
 
     if (tp2Qty > 0 && tp2Qty * tpLevels.tp2Price >= minNotional) {
       const tp2Price = roundToTickSize(tpLevels.tp2Price, constraints.tickSize);
-      const tp2Order = await exchange.createLimitOrder(symbol, side, tp2Qty, tp2Price);
+      const tp2Order = await exchange.createOrder(symbol, 'limit', side, tp2Qty, tp2Price, tpParams);
       trade.tp2Order = {
         id: tp2Order.id ?? '', clientOrderId: `tp2_${Date.now()}`, symbol,
         type: 'TAKE_PROFIT_2', side, price: tp2Price, quantity: tp2Qty,
@@ -260,9 +269,13 @@ export async function applyBreakEvenStopLoss(
       await exchange.cancelOrder(trade.stopLossOrder.id, symbol);
     }
 
+    const beParams: any = { stopPrice: breakEvenPrice, timeInForce: 'GTC' };
+    if (config.marketType === 'futures') {
+      beParams.reduceOnly = true;
+    }
+
     const newSlOrder = await exchange.createOrder(
-      symbol, 'STOP_LOSS_LIMIT', slSide, remainingQty, breakEvenPrice,
-      { stopPrice: breakEvenPrice, timeInForce: 'GTC' },
+      symbol, 'STOP_LOSS_LIMIT', slSide, remainingQty, breakEvenPrice, beParams,
     );
 
     trade.stopLossOrder = {

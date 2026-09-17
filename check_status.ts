@@ -5,11 +5,12 @@ dotenv.config();
 
 async function checkAccountStatus() {
     // .env dosyasından API anahtarlarını çek
-    const apiKey = process.env.BINANCE_TESTNET_API_KEY;
-    const secret = process.env.BINANCE_TESTNET_SECRET;
+    const apiKey = process.env.BINANCE_API_KEY;
+    const secret = process.env.BINANCE_SECRET;
+    const network = process.env.NETWORK?.trim().toLowerCase() || 'testnet';
 
     if (!apiKey || !secret) {
-        console.error("❌ HATA: BINANCE_TESTNET_API_KEY veya BINANCE_TESTNET_SECRET bulunamadı. Lütfen .env dosyanızı kontrol edin.");
+        console.error("❌ HATA: BINANCE_API_KEY veya BINANCE_SECRET bulunamadı. Lütfen .env dosyanızı kontrol edin.");
         process.exit(1);
     }
 
@@ -20,25 +21,45 @@ async function checkAccountStatus() {
         options: { defaultType: 'spot' }
     });
 
-    // Testnet Sandbox modunu aktifleştir
-    exchange.setSandboxMode(true);
+    if (network === 'testnet') {
+        exchange.setSandboxMode(true);
+        console.log("\n🔍 Binance Testnet'e bağlanılıyor...\n");
+    } else if (network === 'demo') {
+        exchange.urls.test = exchange.urls.demo;
+        exchange.setSandboxMode(true);
+        console.log("\n🔍 Binance DEMO (Mock Trading)'e bağlanılıyor...\n");
+    } else {
+        console.log("\n🔍 Binance LIVE (Gerçek Para)'a bağlanılıyor...\n");
+    }
 
     try {
-        console.log("\n🔍 Binance Spot Testnet'e bağlanılıyor...\n");
 
-        // 1. BAKİYE SORGULASI
-        const balance = await exchange.fetchBalance();
+        // 1. BAKİYE SORGULASI (Spot)
+        const spotBalance = await exchange.fetchBalance({ type: 'spot' });
         console.log("==================================================");
-        console.log("💰 SANAL CÜZDAN BAKİYESİ:");
-        console.log(`USDT: ${balance['USDT']?.free || 0} (Boşta) / ${balance['USDT']?.used || 0} (İşlemde)`);
-        console.log(`BTC:  ${balance['BTC']?.free || 0} (Boşta) / ${balance['BTC']?.used || 0} (İşlemde)`);
-        console.log(`ETH:  ${balance['ETH']?.free || 0} (Boşta) / ${balance['ETH']?.used || 0} (İşlemde)`);
+        console.log("💰 SPOT CÜZDAN BAKİYESİ:");
+        console.log(`USDT: ${spotBalance['USDT']?.free || 0} (Boşta) / ${spotBalance['USDT']?.used || 0} (İşlemde)`);
+        console.log(`BTC:  ${spotBalance['BTC']?.free || 0} (Boşta) / ${spotBalance['BTC']?.used || 0} (İşlemde)`);
+        console.log(`ETH:  ${spotBalance['ETH']?.free || 0} (Boşta) / ${spotBalance['ETH']?.used || 0} (İşlemde)`);
+        
+        // 2. BAKİYE SORGULASI (Futures)
+        try {
+            const futureBalance = await exchange.fetchBalance({ type: 'future' });
+            console.log("\n📈 FUTURES (VADELİ) CÜZDAN BAKİYESİ:");
+            console.log(`USDT: ${futureBalance['USDT']?.free || 0} (Boşta) / ${futureBalance['USDT']?.used || 0} (İşlemde)`);
+            console.log(`BTC:  ${futureBalance['BTC']?.free || 0} (Boşta) / ${futureBalance['BTC']?.used || 0} (İşlemde)`);
+            console.log(`ETH:  ${futureBalance['ETH']?.free || 0} (Boşta) / ${futureBalance['ETH']?.used || 0} (İşlemde)`);
+        } catch (e: any) {
+            console.log("\n📈 FUTURES (VADELİ) CÜZDAN BAKİYESİ:");
+            console.log(`❌ Futures bakiyesi alınamadı (Hesap/API yetkisi yok): ${e.message.split('\n')[0]}`);
+        }
         console.log("==================================================\n");
 
         // 2. AÇIK EMİRLER SORGULASI
-        const pairsToCheck = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'AVAX/USDT', 'LINK/USDT']; 
+        const rawPairs = process.env.TRADING_PAIRS || 'BTC/USDT,ETH/USDT';
+        const pairsToCheck = rawPairs.split(',').map(p => p.trim()); 
         
-        console.log("📋 BEKLEYEN AÇIK EMİRLER (Pusu):");
+        console.log(`📋 BEKLEYEN AÇIK EMİRLER (Pusu - ${pairsToCheck.length} Çift):`);
         let hasOpenOrders = false;
 
         for (const pair of pairsToCheck) {

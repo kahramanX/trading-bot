@@ -75,6 +75,14 @@ export function calculatePositionSize(
     return rejectPosition(riskAmount, roughCosts.totalCost, stopDistance, reason);
   }
 
+  // Futures için Marjin (Kasa) Yeterliliği Kontrolü
+  const leverage = config.marketType === 'futures' ? config.leverage : 1;
+  const marginRequired = positionValue / leverage;
+  if (marginRequired > balance) {
+    return rejectPosition(riskAmount, roughCosts.totalCost, stopDistance,
+      `[${constraints.symbol}] İşlem reddedildi (Yetersiz Bakiye): Gerekli marjin ${logger.formatUSD(marginRequired)} > Kasa ${logger.formatUSD(balance)}. (Kaldıraç: ${leverage}x)`);
+  }
+
   // Nihai maliyet hesaplama (gerçek quantity ile)
   const finalCosts = calculateTradeCosts(
     adjustedEntry, stopLoss, quantity, direction, config, constraints,
