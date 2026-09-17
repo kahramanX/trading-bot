@@ -109,46 +109,13 @@ export async function openTrade(
     logger.info('ORDER', `✅ [${symbol}] Entry: ${entryOrder.id} | ${side.toUpperCase()} ${quantity} @ ${logger.formatUSD(entryPrice)}`);
     playSound('ORDER');
 
-    // SL emri — aynı milisaniyede
-    const slSide = signal.direction === 'LONG' ? 'sell' : 'buy';
-    const slPrice = roundToTickSize(signal.stopLoss, constraints.tickSize);
-
-    const slParams: any = { stopPrice: slPrice };
-    let slOrderType = 'STOP_LOSS_LIMIT';
-    let slLimitPrice: number | undefined = slPrice;
-
-    if (config.marketType === 'futures') {
-      slOrderType = 'STOP_MARKET';
-      slLimitPrice = undefined; // Futures'ta Stop Market daha güvenlidir, limit fiyata gerek yok
-      slParams.reduceOnly = true;
-    } else {
-      slParams.timeInForce = 'GTC'; // Spot için geçerli
-    }
-
-    const slOrder = await exchange.createOrder(
-      symbol, slOrderType, slSide, quantity, slLimitPrice, slParams,
-    );
-
-    const slManaged: ManagedOrder = {
-      id: slOrder.id ?? '',
-      clientOrderId: `sl_${Date.now()}`,
-      symbol,
-      type: 'STOP_LOSS',
-      side: slSide,
-      price: slPrice,
-      quantity,
-      filledQuantity: 0,
-      status: 'OPEN',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    logger.info('ORDER', `🛡️ [${symbol}] SL: ${slOrder.id} | @ ${logger.formatUSD(slPrice)}`);
+    // SL emri burada baştan gönderilmeyecek! Partial fill / dolum anında manageActiveTrade içinde gönderilecek.
+    logger.info('ORDER', `🛡️ [${symbol}] SL emri dolum (fill) beklentisiyle beklemeye alındı.`);
 
     activeTrades.set(symbol, {
       symbol,
       entryOrder: entryManaged,
-      stopLossOrder: slManaged,
+      stopLossOrder: undefined, // Dolum gelene kadar undefined
       signal,
       tp1Hit: false,
       breakEvenApplied: false,
@@ -243,6 +210,80 @@ export async function placeTPOrders(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     logger.error('ORDER', `[${symbol}] TP emir hatası: ${msg}`);
+  }
+}
+
+/**
+ * SL emrini yerleştirir veya günceller (Kısmi dolumlar için)
+ */
+export async function placeSLOrder(
+  symbol: string,
+  filledQuantity: number,
+  config: BotConfig,
+  constraints: SymbolConstraints,
+): Promise<void> {
+  const trade = activeTrades.get(symbol);
+  if (!trade) return;
+
+  const exchange = getExchange();
+  const slSide = trade.signal.direction === 'LONG' ? 'sell' : 'buy';
+  const slPrice = roundToTickSize(trade.signal.stopLoss, constraints.tickSize);
+
+  if (config.dryRun) {
+    if (!trade.stopLossOrder) {
+      logger.info('ORDER', `🧪 DRY-RUN [${symbol}]: SL simüle edildi @ ${logger.formatUSD(slPrice)}`);
+      trade.stopLossOrder = {
+        id: `dry_sl_${Date.now()}`, clientOrderId: `dry_sl_${Date.now()}`, symbol,
+        type: 'STOP_LOSS', side: slSide, price: slPrice, quantity: filledQuantity,
+        filledQuantity: 0, status: 'OPEN', createdAt: Date.now(), updatedAt: Date.now(),
+      };
+    } else {
+      trade.stopLossOrder.quantity = filledQuantity;
+    }
+    return;
+  }
+
+  try {
+    // Varsa eski SL'yi iptal et
+    if (trade.stopLossOrder?.status === 'OPEN') {
+      if (trade.stopLossOrder.quantity === filledQuantity) return; // Zaten güncel
+      await exchange.cancelOrder(trade.stopLossOrder.id, symbol);
+    }
+
+    const slParams: any = { stopPrice: slPrice };
+    let slOrderType = 'STOP_LOSS_LIMIT';
+    let slLimitPrice: number | undefined = slPrice;
+
+    if (config.marketType === 'futures') {
+      slOrderType = 'STOP_MARKET';
+      slLimitPrice = undefined;
+      slParams.reduceOnly = true;
+    } else {
+      slParams.timeInForce = 'GTC';
+    }
+
+    const slOrder = await exchange.createOrder(
+      symbol, slOrderType, slSide, filledQuantity, slLimitPrice, slParams,
+    );
+
+    trade.stopLossOrder = {
+      id: slOrder.id ?? '',
+      clientOrderId: `sl_${Date.now()}`,
+      symbol,
+      type: 'STOP_LOSS',
+      side: slSide,
+      price: slPrice,
+      quantity: filledQuantity,
+      filledQuantity: 0,
+      status: 'OPEN',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    logger.info('ORDER', `🛡️ [${symbol}] SL: ${trade.stopLossOrder.id} | ${filledQuantity} lot @ ${logger.formatUSD(slPrice)}`);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logger.error('ORDER', `[${symbol}] SL emir hatası: ${msg}`);
   }
 }
 
@@ -368,8 +409,14 @@ export async function syncOrderStatuses(symbol: string, config: BotConfig): Prom
       if (mo.status !== prev) {
         logger.info('FILL', `[${symbol}] ${mo.type}: ${prev} → ${mo.status} (${mo.filledQuantity}/${mo.quantity})`);
       }
-    } catch {
-      logger.debug('ORDER', `[${symbol}] ${mo.id} durumu sorgulanamadı`);
+    } catch (e: any) {
+      if (e.message.includes('-2013') || e.message.includes('Order does not exist')) {
+        logger.debug('ORDER', `[${symbol}] ${mo.id} borsada bulunamadı (-2013). Tetiklenmiş veya silinmiş kabul ediliyor.`);
+        mo.status = mo.type === 'ENTRY' ? 'CANCELLED' : 'FILLED';
+        mo.updatedAt = Date.now();
+      } else {
+        logger.debug('ORDER', `[${symbol}] ${mo.id} durumu sorgulanamadı: ${e.message}`);
+      }
     }
   }
 }
@@ -403,12 +450,7 @@ function createVirtualTrade(
       price: entryPrice, quantity, filledQuantity: 0, status: 'OPEN',
       createdAt: Date.now(), updatedAt: Date.now(),
     },
-    stopLossOrder: {
-      id: `dry_sl_${Date.now()}`, clientOrderId: `dry_sl_${Date.now()}`, symbol: signal.symbol,
-      type: 'STOP_LOSS', side: signal.direction === 'LONG' ? 'sell' : 'buy',
-      price: signal.stopLoss, quantity, filledQuantity: 0, status: 'OPEN',
-      createdAt: Date.now(), updatedAt: Date.now(),
-    },
+    stopLossOrder: undefined, // SL emri baştan konulmuyor
     signal,
     tp1Hit: false,
     breakEvenApplied: false,
@@ -509,8 +551,14 @@ export async function manageActiveTrade(
 
   // 3. Durum: Giriş Emri Doldu (veya Kısmi Doldu)
   if (trade.entryOrder.status === 'FILLED' || trade.entryOrder.status === 'PARTIALLY_FILLED') {
-    // Canlı modda henüz TP emirleri verilmemişse ver
-    if (!trade.tp1Order && !trade.tp2Order && trade.tp1Price && trade.tp2Price && trade.tp1Quantity && trade.tp2Quantity) {
+    
+    // 3.0 SL Emrini Yerleştir / Güncelle
+    if (!trade.stopLossOrder || trade.stopLossOrder.quantity < trade.entryOrder.filledQuantity) {
+      await placeSLOrder(symbol, trade.entryOrder.filledQuantity, config, constraints);
+    }
+
+    // 3.0.5 TP Emirlerini Yerleştir (Kısmi Başarısızlıkları Önle)
+    if (trade.tp1Price && trade.tp2Price && trade.tp1Quantity && trade.tp2Quantity) {
       const tpLevels: TakeProfitLevels = {
         tp1Price: trade.tp1Price,
         tp2Price: trade.tp2Price,
@@ -520,7 +568,31 @@ export async function manageActiveTrade(
         riskRewardTP2: config.tp2RR,
         isValid: true,
       };
-      await placeTPOrders(symbol, tpLevels, trade.entryOrder.filledQuantity, config, constraints);
+
+      // Tek TP ile birleştirme (minNotional koruması)
+      const ratio = trade.entryOrder.filledQuantity / trade.entryOrder.quantity;
+      const tp1Qty = floorToStepSize(trade.tp1Quantity * ratio, constraints.stepSize);
+      const tp2Qty = floorToStepSize(trade.entryOrder.filledQuantity - tp1Qty, constraints.stepSize);
+      
+      const minNotional = Math.max(constraints.minNotional, 5);
+      
+      // Eğer TP1 veya TP2'den biri minNotional altında kalıyorsa, hepsini TP1'e taşı (Sadece biri oluşturulacak)
+      let shouldCombine = false;
+      if (tp1Qty > 0 && tp1Qty * trade.tp1Price < minNotional) shouldCombine = true;
+      if (tp2Qty > 0 && tp2Qty * trade.tp2Price < minNotional) shouldCombine = true;
+
+      if (shouldCombine && !trade.tp1Order && !trade.tp2Order) {
+        // Tüm miktarı TP1'de birleştir
+        tpLevels.tp1Quantity = trade.entryOrder.quantity; // Orijinal miktar
+        tpLevels.tp2Quantity = 0;
+        logger.warn('ORDER', `[${symbol}] Kısmi dolum miktar küçük, TP hedefleri birleştiriliyor.`);
+        await placeTPOrders(symbol, tpLevels, trade.entryOrder.filledQuantity, config, constraints);
+      } else {
+        // Sızıntıyı önleyen ayrı kontroller
+        if (!trade.tp1Order || !trade.tp2Order) {
+           await placeTPOrders(symbol, tpLevels, trade.entryOrder.filledQuantity, config, constraints);
+        }
+      }
     }
 
     // 3.1 Dry-run fiyat tetiklemelerini simüle et

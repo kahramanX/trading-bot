@@ -28,10 +28,32 @@ function getStatePath(): string {
 
 export function loadState(currentBalance: number): CircuitBreakerState {
   const filePath = getStatePath();
+  const bakPath = `${filePath}.bak`;
+  
+  let raw = '';
+  let loadedFromBak = false;
+
   try {
     if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf-8');
+      raw = fs.readFileSync(filePath, 'utf-8');
+      JSON.parse(raw); // Parse test
+    }
+  } catch (err) {
+    logger.warn('GUARD', 'Durum dosyası (JSON) bozuk veya okunamıyor. Yedek (.bak) dosyasına geçiliyor...');
+    try {
+      if (fs.existsSync(bakPath)) {
+        raw = fs.readFileSync(bakPath, 'utf-8');
+        loadedFromBak = true;
+      }
+    } catch {
+      // Bak de bozuk
+    }
+  }
+
+  try {
+    if (raw) {
       const state = JSON.parse(raw) as CircuitBreakerState;
+      if (loadedFromBak) logger.info('GUARD', 'Yedek dosyadan durum başarıyla kurtarıldı.');
 
       const today = new Date().toISOString().split('T')[0]!;
       if (state.dailyDate !== today) {
@@ -49,17 +71,30 @@ export function loadState(currentBalance: number): CircuitBreakerState {
       return state;
     }
   } catch {
-    logger.warn('GUARD', 'Durum dosyası okunamadı. Varsayılan kullanılıyor.');
+    logger.warn('GUARD', 'Durum ve yedek dosyaları tamamen kurtarılamaz durumda. Varsayılan (sıfırlanmış) durum kullanılıyor. Dikkat!');
   }
   return createDefaultState(currentBalance);
 }
 
 export function saveState(state: CircuitBreakerState): void {
+  const filePath = getStatePath();
+  const tmpPath = `${filePath}.tmp`;
+  const bakPath = `${filePath}.bak`;
+
   try {
-    fs.writeFileSync(getStatePath(), JSON.stringify(state, null, 2), 'utf-8');
+    // 1. Önce geçici dosyaya (temp) yaz
+    fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+    
+    // 2. Eğer asıl dosya varsa, onu yedeğe (.bak) taşı
+    if (fs.existsSync(filePath)) {
+      fs.renameSync(filePath, bakPath);
+    }
+
+    // 3. Geçici dosyayı asıl dosyaya (.json) taşı
+    fs.renameSync(tmpPath, filePath);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error('GUARD', `Durum dosyası yazılamadı: ${msg}`);
+    logger.error('GUARD', `Durum dosyası atomic yazılamadı: ${msg}`);
   }
 }
 

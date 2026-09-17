@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════════════
 
 import type { Candle, TradeDirection, SwingPoint, BotConfig } from '../utils/types.js';
-import { calculateATR, roundToTickSize } from '../utils/candle_utils.js';
+import { calculateATR, roundToTickSize, ceilToTickSize, floorToTickSize } from '../utils/candle_utils.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -112,11 +112,12 @@ export function calculateBreakEvenStopLoss(
 
   if (direction === 'LONG') {
     breakEvenSL = entryPrice * (1 + makerFee) / (1 - takerFee);
+    breakEvenSL = ceilToTickSize(breakEvenSL, tickSize);
   } else {
     breakEvenSL = entryPrice * (1 - makerFee) / (1 + takerFee);
+    breakEvenSL = floorToTickSize(breakEvenSL, tickSize);
   }
 
-  breakEvenSL = roundToTickSize(breakEvenSL, tickSize);
   logger.info('RISK', `🔄 SL → True Break-Even: ${logger.formatUSD(breakEvenSL)}`);
   return breakEvenSL;
 }

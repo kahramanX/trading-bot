@@ -115,11 +115,27 @@ function detectMSS(
       // CLOSE BREAK KURALI: Mutlaka mum kapanışı (close) seviyenin üstünde olmalı!
       // Sadece high > lastHigh.price olup close <= lastHigh.price ise kırılım YOKTUR (wick rejection).
       if (c.close > lastHigh.price) {
+        // KÖK SORUN DÜZELTMESİ (False Positive MSS):
+        // Fiyat lastHigh'ı kırmadan önce veya kırılım mumunun kendi iğnesiyle (low) 
+        // lastLow seviyesinin altına düştü mü? Düştüyse yapı zaten çoktan çökmüştür.
+        let brokenBeforeMSS = false;
+        for (let k = lastHigh.index + 1; k <= i; k++) {
+          if (candles[k]!.low < lastLow.price) {
+            brokenBeforeMSS = true;
+            break;
+          }
+        }
+        
+        if (brokenBeforeMSS) {
+          // Bu yapı geçersiz oldu, sonraki aramalara geç
+          continue;
+        }
+
         // Kırılma sonrası yapı bozuldu mu kontrol et:
-        // Eğer fiyat daha sonra son Low'un altına kapanış yaptıysa MSS iptal olmuştur.
+        // Eğer fiyat daha sonra son Low'un altına kapandı/sarktıyse MSS iptal olmuştur.
         let invalidated = false;
         for (let j = i + 1; j < candles.length; j++) {
-          if (candles[j]!.close < lastLow.price) {
+          if (candles[j]!.low < lastLow.price) { // Wick (low) ihlali yeterlidir, close beklenmez
             invalidated = true;
             break;
           }
@@ -149,9 +165,22 @@ function detectMSS(
 
       // CLOSE BREAK KURALI: Mutlaka mum kapanışı (close) seviyenin altında olmalı!
       if (c.close < lastLow.price) {
+        
+        // KÖK SORUN DÜZELTMESİ (False Positive MSS):
+        // Kırılımdan önce veya kırılım anında lastHigh seviyesi yukarı kırıldı mı?
+        let brokenBeforeMSS = false;
+        for (let k = lastLow.index + 1; k <= i; k++) {
+          if (candles[k]!.high > lastHigh.price) {
+            brokenBeforeMSS = true;
+            break;
+          }
+        }
+        
+        if (brokenBeforeMSS) continue;
+
         let invalidated = false;
         for (let j = i + 1; j < candles.length; j++) {
-          if (candles[j]!.close > lastHigh.price) {
+          if (candles[j]!.high > lastHigh.price) { // Wick (high) ihlali yeterlidir
             invalidated = true;
             break;
           }

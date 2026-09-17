@@ -139,12 +139,28 @@ export function msUntilNextCandleClose(timeframe: string): number {
 }
 
 /**
- * Fiyatı belirtilen tick size'a yuvarlar.
+ * Fiyatı belirtilen tick size'a yuvarlar (en yakın).
  * Binance PRICE_FILTER uyumu için gerekli.
  */
 export function roundToTickSize(price: number, tickSize: number): number {
   const precision = countDecimals(tickSize);
   return parseFloat((Math.round(price / tickSize) * tickSize).toFixed(precision));
+}
+
+/**
+ * Fiyatı belirtilen tick size'a yukarı yuvarlar. (Örn: Long Break-Even)
+ */
+export function ceilToTickSize(price: number, tickSize: number): number {
+  const precision = countDecimals(tickSize);
+  return parseFloat((Math.ceil(price / tickSize) * tickSize).toFixed(precision));
+}
+
+/**
+ * Fiyatı belirtilen tick size'a aşağı yuvarlar. (Örn: Short Break-Even)
+ */
+export function floorToTickSize(price: number, tickSize: number): number {
+  const precision = countDecimals(tickSize);
+  return parseFloat((Math.floor(price / tickSize) * tickSize).toFixed(precision));
 }
 
 /**

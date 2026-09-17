@@ -50,8 +50,12 @@ export async function initExchange(config: BotConfig): Promise<BinanceExchange> 
       try {
         await exchange.setMarginMode('isolated', symbol);
       } catch (e: any) {
-        if (!e.message.includes('No need to change margin type')) {
-          logger.warn('SYSTEM', `  ⚠️ ${symbol} margin mode ayarlanamadı: ${e.message}`);
+        const errorMsg = e.message || '';
+        const isHarmless = errorMsg.includes('No need to change margin type') || 
+                           errorMsg.includes('-4067') || 
+                           errorMsg.includes('Position side cannot be changed');
+        if (!isHarmless) {
+          logger.warn('SYSTEM', `  ⚠️ ${symbol} margin mode ayarlanamadı: ${errorMsg}`);
         }
       }
       try {
