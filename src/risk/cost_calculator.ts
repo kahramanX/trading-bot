@@ -1,0 +1,114 @@
+// ══════════════════════════════════════════════════════════════
+// cost_calculator.ts — Komisyon + Slippage Maliyet Motoru
+// "Görünmeyen maliyetleri" hesaplar. Gerçek dünyada kârlı görünen
+// işlemlerin komisyon+kayma sonrası zararda olup olmayacağını ortaya koyar.
+// ══════════════════════════════════════════════════════════════
+
+import type { TradeCosts, BotConfig, TradeDirection, SymbolConstraints } from '../utils/types.js';
+import { logger } from '../utils/logger.js';
+
+/**
+ * Bir işlemin toplam maliyetini hesaplar.
+ * Komisyon (maker/taker) + slippage dahil.
+ *
+ * @param entryPrice   - Hedef giriş fiyatı
+ * @param exitPrice    - Hedef çıkış fiyatı (SL veya TP)
+ * @param quantity     - İşlem miktarı (coin)
+ * @param direction    - İşlem yönü (LONG veya SHORT)
+ * @param config       - Bot konfigürasyonu (komisyon oranları)
+ * @param constraints  - Sembol kısıtlamaları (tickSize)
+ * @returns TradeCosts  - Detaylı maliyet analizi
+ */
+export function calculateTradeCosts(
+  entryPrice: number,
+  exitPrice: number,
+  quantity: number,
+  direction: TradeDirection,
+  config: BotConfig,
+  constraints: SymbolConstraints,
+): TradeCosts {
+  // ─── Pozisyon Değerleri ───────────────────────────────────
+  const entryValue = entryPrice * quantity;
+  const exitValue = exitPrice * quantity;
+
+  // ─── Komisyon Hesaplama ───────────────────────────────────
+  // Giriş: Limit emir (Maker) — pusu kuruyoruz
+  const entryCommission = entryValue * (config.makerFeePct / 100);
+
+  // Çıkış: SL = Market emir (Taker), TP = Limit emir (Maker)
+  // En kötü senaryo (SL) hesaplanır — güvenli taraf
+  const exitCommission = exitValue * (config.takerFeePct / 100);
+
+  // ─── Slippage (Fiyat Kayması) Hesaplama ───────────────────
+  // Slippage sadece market emirlerde (SL tetiklendiğinde) oluşur
+  // Limit emirlerde (giriş) slippage yok — fiyat bizim belirlediğimiz seviyede
+  const slippagePerUnit = constraints.tickSize * config.slippageTicks;
+  const slippageCost = slippagePerUnit * quantity;
+
+  // ─── Toplam Maliyet ──────────────────────────────────────
+  const totalCost = entryCommission + exitCommission + slippageCost;
+
+  // ─── Efektif Fiyatlar ────────────────────────────────────
+  // Maliyetler dahil edildiğinde gerçek giriş/çıkış fiyatları
+  let effectiveEntry: number;
+  let effectiveExit: number;
+
+  if (direction === 'LONG') {
+    // LONG: Komisyon+kayma giriş fiyatını artırır, çıkış fiyatını düşürür
+    effectiveEntry = entryPrice + (entryCommission / quantity);
+    effectiveExit = exitPrice - (exitCommission / quantity) - slippagePerUnit;
+  } else {
+    // SHORT: Komisyon+kayma giriş fiyatını düşürür, çıkış fiyatını artırır
+    effectiveEntry = entryPrice - (entryCommission / quantity);
+    effectiveExit = exitPrice + (exitCommission / quantity) + slippagePerUnit;
+  }
+
+  return {
+    entryCommission,
+    exitCommission,
+    slippageCost,
+    totalCost,
+    effectiveEntry,
+    effectiveExit,
+  };
+}
+
+/**
+ * Maliyet detaylarını terminale loglar.
+ */
+export function logCostBreakdown(costs: TradeCosts, entryPrice: number, exitPrice: number): void {
+  logger.info('RISK', `Maliyet Analizi:`);
+  logger.info('RISK', `  Giriş Komisyon: ${logger.formatUSD(costs.entryCommission)} (Maker)`);
+  logger.info('RISK', `  Çıkış Komisyon: ${logger.formatUSD(costs.exitCommission)} (Taker/SL senaryosu)`);
+  logger.info('RISK', `  Slippage:       ${logger.formatUSD(costs.slippageCost)}`);
+  logger.info('RISK', `  Toplam Maliyet: ${logger.formatUSD(costs.totalCost)}`);
+  logger.separator();
+  logger.info('RISK', `  Ham Giriş:      ${logger.formatUSD(entryPrice)} → Efektif: ${logger.formatUSD(costs.effectiveEntry)}`);
+  logger.info('RISK', `  Ham Çıkış:      ${logger.formatUSD(exitPrice)} → Efektif: ${logger.formatUSD(costs.effectiveExit)}`);
+}
+
+/**
+ * Bir işlemin maliyet sonrası net kâr/zararını hesaplar.
+ * R:R'ın gerçekçi olup olmadığını doğrulamak için kullanılır.
+ *
+ * @returns Net P&L ($) — pozitif kâr, negatif zarar
+ */
+export function calculateNetPnL(
+  entryPrice: number,
+  exitPrice: number,
+  quantity: number,
+  direction: TradeDirection,
+  config: BotConfig,
+  constraints: SymbolConstraints,
+): number {
+  const costs = calculateTradeCosts(entryPrice, exitPrice, quantity, direction, config, constraints);
+
+  let grossPnL: number;
+  if (direction === 'LONG') {
+    grossPnL = (exitPrice - entryPrice) * quantity;
+  } else {
+    grossPnL = (entryPrice - exitPrice) * quantity;
+  }
+
+  return grossPnL - costs.totalCost;
+}
