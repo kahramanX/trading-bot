@@ -77,7 +77,7 @@ export function calculateTakeProfitLevels(
   const weightedRR = (riskRewardTP1 * 0.5) + (riskRewardTP2 * 0.5);
 
   if (weightedRR < config.minRRRatio) {
-    const reason = `[${constraints.symbol}] Efektif R:R (${weightedRR.toFixed(2)}) < minimum (1:${config.minRRRatio}). İşlem reddedildi.`;
+    const reason = `[${constraints.symbol}] Sinyal reddedildi: Beklenen RR ${config.minRRRatio}, Bulunan Efektif RR ${weightedRR.toFixed(2)}`;
     logger.warn('RISK', reason);
     return {
       tp1Price, tp2Price, tp1Quantity, tp2Quantity,

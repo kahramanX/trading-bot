@@ -635,7 +635,7 @@ export async function manageActiveTrade(
 
     // 3.2 Kural: TP1 Gerçekleştiğinde SL Break-Even'a çekilmelidir
     if ((trade.tp1Order?.status === 'FILLED' || trade.tp1Hit) && !trade.breakEvenApplied) {
-      logger.info('ORDER', `[${symbol}] 🎯 TP1 dolumu teyit edildi. SL Break-Even seviyesine taşınıyor...`);
+      logger.info('ORDER', `[${symbol}] 🎯 TP1 hedefine ulaşıldı! Pozisyonun %50'si kârla satıldı. Kalan kısım için SL Break-Even (başa baş) seviyesine çekiliyor...`);
       playSound('PROFIT');
       await applyBreakEvenStopLoss(symbol, config, constraints);
     }
@@ -643,7 +643,7 @@ export async function manageActiveTrade(
     // 3.3 Kural: TP2 Doldu (Tam Kâr Alımı ile Pozisyon Kapandı)
     if (trade.tp2Order?.status === 'FILLED') {
       logger.separator();
-      logger.info('ORDER', `[${symbol}] 🏆 TP2 DOLDU! Tüm pozisyon hedefine ulaştı.`);
+      logger.info('ORDER', `[${symbol}] 🏆 TP2 hedefine ulaşıldı! Pozisyonun kalan %50'si de satıldı. İşlem maksimum kârla başarıyla kapatıldı.`);
       playSound('PROFIT');
 
       // Stop-loss emrini iptal et

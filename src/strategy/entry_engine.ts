@@ -161,7 +161,8 @@ export function runEntryEngine(
   // Kaba R:R kontrolü (efektif hesap position_sizer/take_profit'te yapılacak)
   const avgRR = (config.tp1RR * 0.5 + config.tp2RR * 0.5);
   if (avgRR < config.minRRRatio) {
-    return noSignal(`[${symbol}] R:R (${avgRR.toFixed(2)}) < minimum (${config.minRRRatio}). Reddedildi.`, 'RR_CHECK');
+    logger.warn('ENGINE', `[${symbol}] Sinyal reddedildi: Beklenen RR ${config.minRRRatio}, Bulunan RR ${avgRR.toFixed(2)}`);
+    return noSignal(`[${symbol}] Sinyal reddedildi: Beklenen RR ${config.minRRRatio}, Bulunan RR ${avgRR.toFixed(2)}`, 'RR_CHECK');
   }
 
   // ─── ✅ Sinyal Oluştur ────────────────────────────────────
