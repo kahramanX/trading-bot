@@ -26,7 +26,7 @@ function getStatePath(): string {
   return path.resolve(process.cwd(), STATE_FILE);
 }
 
-export function loadState(currentBalance: number): CircuitBreakerState {
+export function loadState(currentBalance: number, _config?: BotConfig): CircuitBreakerState {
   const filePath = getStatePath();
   const bakPath = `${filePath}.bak`;
   
@@ -57,14 +57,21 @@ export function loadState(currentBalance: number): CircuitBreakerState {
 
       const today = new Date().toISOString().split('T')[0]!;
       if (state.dailyDate !== today) {
-        logger.info('GUARD', `Yeni gün (${today}). Günlük sayaçlar sıfırlandı.`);
-        return createDefaultState(currentBalance);
+        logger.info('GUARD', `🌅 Yeni gün (${today}) başladı. Gece Reseti: Günlük sayaçlar ve Circuit Breaker sıfırlandı.`);
+        const newState = createDefaultState(currentBalance);
+        saveState(newState);
+        return newState;
       }
 
       if (state.isTripped && state.resumeAt) {
         if (Date.now() >= new Date(state.resumeAt).getTime()) {
-          logger.info('GUARD', `⏰ Uyku süresi doldu. Circuit Breaker sıfırlandı.`);
-          return createDefaultState(currentBalance);
+          logger.info('GUARD', `⏰ Cooldown süresi doldu. Circuit Breaker devreden çıkarıldı.`);
+          state.isTripped = false;
+          state.tripReason = undefined;
+          state.resumeAt = undefined;
+          state.consecutiveLosses = 0;
+          saveState(state);
+          return state;
         }
       }
 
@@ -73,7 +80,9 @@ export function loadState(currentBalance: number): CircuitBreakerState {
   } catch {
     logger.warn('GUARD', 'Durum ve yedek dosyaları tamamen kurtarılamaz durumda. Varsayılan (sıfırlanmış) durum kullanılıyor. Dikkat!');
   }
-  return createDefaultState(currentBalance);
+  const defaultState = createDefaultState(currentBalance);
+  saveState(defaultState);
+  return defaultState;
 }
 
 export function saveState(state: CircuitBreakerState): void {
@@ -132,20 +141,21 @@ export function recordTradeResult(
     `Günlük P&L: ${logger.formatUSD(newState.dailyPnL)}`);
 
   if (newState.consecutiveLosses >= config.maxConsecutiveLosses) {
-    return tripCircuitBreaker(newState, `${config.maxConsecutiveLosses} ardışık stop-loss.`);
+    return tripCircuitBreaker(newState, `${config.maxConsecutiveLosses} ardışık stop-loss.`, config);
   }
 
   const dailyLossPct = (Math.abs(newState.dailyPnL) / newState.dailyStartBalance) * 100;
   if (newState.dailyPnL < 0 && dailyLossPct >= config.maxDailyLossPct) {
-    return tripCircuitBreaker(newState, `Günlük kayıp ${logger.formatPct(dailyLossPct)} ≥ ${logger.formatPct(config.maxDailyLossPct)}`);
+    return tripCircuitBreaker(newState, `Günlük kayıp ${logger.formatPct(dailyLossPct)} ≥ ${logger.formatPct(config.maxDailyLossPct)}`, config);
   }
 
   saveState(newState);
   return newState;
 }
 
-function tripCircuitBreaker(state: CircuitBreakerState, reason: string): CircuitBreakerState {
-  const resumeAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+function tripCircuitBreaker(state: CircuitBreakerState, reason: string, config?: BotConfig): CircuitBreakerState {
+  const cooldownHours = config?.circuitBreakerCooldownHours ?? 4;
+  const resumeAt = new Date(Date.now() + cooldownHours * 60 * 60 * 1000);
   state.isTripped = true;
   state.tripReason = reason;
   state.resumeAt = resumeAt.toISOString();
@@ -153,8 +163,8 @@ function tripCircuitBreaker(state: CircuitBreakerState, reason: string): Circuit
   logger.separator();
   logger.warn('GUARD', `🚨 CIRCUIT BREAKER TETİKLENDİ!`);
   logger.warn('GUARD', `   Sebep: ${reason}`);
-  logger.warn('GUARD', `   24 saat uyku. Devam: ${resumeAt.toLocaleString('tr-TR')}`);
-  logger.warn('GUARD', `   "İntikam işlemi" engellendi. 💪`);
+  logger.warn('GUARD', `   ${cooldownHours} saat cooldown. Devam: ${resumeAt.toLocaleString('tr-TR')}`);
+  logger.warn('GUARD', `   Piyasa oturana kadar yeni işlem durduruldu. 🛡️`);
   logger.separator();
 
   saveState(state);

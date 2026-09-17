@@ -76,7 +76,7 @@ async function executeCycle(config: ReturnType<typeof loadConfig>): Promise<void
   }
 
   // ─── 2. Circuit Breaker ──────────────────────────────────
-  const cbState = loadState(balance);
+  const cbState = loadState(balance, config);
   if (isCircuitBreakerTripped(cbState)) return;
   logCircuitBreakerStatus(cbState, config);
 

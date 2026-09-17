@@ -19,6 +19,7 @@ describe('circuit_breaker', () => {
     riskPerTradePct: 1,
     maxDailyLossPct: 3, // 3%
     maxConsecutiveLosses: 3, // 3 in a row
+    circuitBreakerCooldownHours: 4,
     minRRRatio: 2.0,
     tp1RR: 2.0,
     tp2RR: 3.0,
@@ -30,16 +31,21 @@ describe('circuit_breaker', () => {
     dryRun: true,
   };
 
+  const bakFile = `${stateFile}.bak`;
+  const tmpFile = `${stateFile}.tmp`;
+
+  const cleanup = () => {
+    if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
+    if (fs.existsSync(bakFile)) fs.unlinkSync(bakFile);
+    if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+  };
+
   beforeEach(() => {
-    if (fs.existsSync(stateFile)) {
-      fs.unlinkSync(stateFile);
-    }
+    cleanup();
   });
 
   afterEach(() => {
-    if (fs.existsSync(stateFile)) {
-      fs.unlinkSync(stateFile);
-    }
+    cleanup();
   });
 
   it('initializes with default values', () => {
@@ -147,5 +153,63 @@ describe('circuit_breaker', () => {
     const loadedState = loadState(5000);
     expect(loadedState.consecutiveLosses).toBe(2);
     expect(loadedState.dailyPnL).toBe(-25);
+  });
+
+  it('sets resumeAt according to circuitBreakerCooldownHours when tripped', () => {
+    let state = loadState(1000);
+    const lossResult: TradeResult = {
+      timestamp: Date.now(),
+      symbol: 'BTC/USDT',
+      direction: 'LONG',
+      entryPrice: 50000,
+      exitPrice: 49000,
+      quantity: 0.001,
+      pnl: -5,
+      isWin: false,
+      exitReason: 'STOP_LOSS',
+    };
+
+    state = recordTradeResult(state, lossResult, mockConfig);
+    state = recordTradeResult(state, lossResult, mockConfig);
+    const beforeTrip = Date.now();
+    state = recordTradeResult(state, lossResult, mockConfig);
+
+    expect(state.isTripped).toBe(true);
+    expect(state.resumeAt).toBeDefined();
+    const resumeTime = new Date(state.resumeAt!).getTime();
+    const expectedDiffMs = 4 * 60 * 60 * 1000;
+    // Difference should be approx 4 hours (within 5 seconds tolerance)
+    expect(Math.abs((resumeTime - beforeTrip) - expectedDiffMs)).toBeLessThan(5000);
+  });
+
+  it('un-trips when cooldown time passes', () => {
+    let state = loadState(1000);
+    state.isTripped = true;
+    state.tripReason = '3 ardışık stop-loss.';
+    // Set resumeAt to 10 seconds in the past
+    state.resumeAt = new Date(Date.now() - 10000).toISOString();
+    state.consecutiveLosses = 3;
+    saveState(state);
+
+    const reloaded = loadState(1000);
+    expect(reloaded.isTripped).toBe(false);
+    expect(reloaded.consecutiveLosses).toBe(0);
+    expect(reloaded.resumeAt).toBeUndefined();
+  });
+
+  it('resets daily stats and tripped state on date change (Gece Reseti)', () => {
+    let state = loadState(1000);
+    state.isTripped = true;
+    state.tripReason = 'Günlük kayıp';
+    state.consecutiveLosses = 3;
+    state.dailyPnL = -50;
+    state.dailyDate = '2020-01-01'; // Yesterday / old date
+    saveState(state);
+
+    const reloaded = loadState(1000);
+    expect(reloaded.isTripped).toBe(false);
+    expect(reloaded.consecutiveLosses).toBe(0);
+    expect(reloaded.dailyPnL).toBe(0);
+    expect(reloaded.dailyDate).toBe(new Date().toISOString().split('T')[0]);
   });
 });

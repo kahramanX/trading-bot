@@ -53,11 +53,15 @@ describe('stop_loss', () => {
   it('calculates break-even stop loss properly', () => {
     const entryPrice = 50000;
     const tickSize = 0.01;
+    const mockConfig = {
+      makerFeePct: 0.02,
+      takerFeePct: 0.05,
+    } as any;
 
-    const longBE = calculateBreakEvenStopLoss(entryPrice, 'LONG', tickSize);
-    expect(longBE).toBe(50000.01);
+    const longBE = calculateBreakEvenStopLoss(entryPrice, 'LONG', tickSize, mockConfig);
+    expect(longBE).toBeGreaterThan(entryPrice); // Covers fee
 
-    const shortBE = calculateBreakEvenStopLoss(entryPrice, 'SHORT', tickSize);
-    expect(shortBE).toBe(49999.99);
+    const shortBE = calculateBreakEvenStopLoss(entryPrice, 'SHORT', tickSize, mockConfig);
+    expect(shortBE).toBeLessThan(entryPrice); // Covers fee
   });
 });

@@ -10,6 +10,7 @@ describe('cost_calculator', () => {
     riskPerTradePct: 1,
     maxDailyLossPct: 3,
     maxConsecutiveLosses: 3,
+    circuitBreakerCooldownHours: 4,
     minRRRatio: 2.0,
     tp1RR: 2.0,
     tp2RR: 3.0,

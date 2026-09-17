@@ -78,9 +78,10 @@ export function loadConfig(): BotConfig {
 
     tradingPairs,
 
-    riskPerTradePct:       envFloat('RISK_PER_TRADE_PCT', 1),
-    maxDailyLossPct:       envFloat('MAX_DAILY_LOSS_PCT', 3),
-    maxConsecutiveLosses:  envInt('MAX_CONSECUTIVE_LOSSES', 3),
+    riskPerTradePct:             envFloat('RISK_PER_TRADE_PCT', 1),
+    maxDailyLossPct:             envFloat('MAX_DAILY_LOSS_PCT', 3),
+    maxConsecutiveLosses:        envInt('MAX_CONSECUTIVE_LOSSES', 3),
+    circuitBreakerCooldownHours: envFloat('CIRCUIT_BREAKER_COOLDOWN_HOURS', 4),
 
     minRRRatio: envFloat('MIN_RR_RATIO', 2.5),
     tp1RR:      envFloat('TP1_RR', 2),
@@ -111,6 +112,9 @@ function validateConfig(config: BotConfig): void {
   }
   if (config.maxConsecutiveLosses < 1 || config.maxConsecutiveLosses > 10) {
     errors.push(`maxConsecutiveLosses = ${config.maxConsecutiveLosses} — 1-10 arasında olmalı`);
+  }
+  if (config.circuitBreakerCooldownHours <= 0 || config.circuitBreakerCooldownHours > 72) {
+    errors.push(`circuitBreakerCooldownHours = ${config.circuitBreakerCooldownHours} — 0-72 saat arasında olmalı`);
   }
   if (config.minRRRatio < 1) {
     errors.push(`minRRRatio = ${config.minRRRatio} — minimum 1:1 olmalı`);

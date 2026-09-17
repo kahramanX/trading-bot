@@ -197,6 +197,7 @@ export interface BotConfig {
   riskPerTradePct: number;
   maxDailyLossPct: number;
   maxConsecutiveLosses: number;
+  circuitBreakerCooldownHours: number;
 
   // R:R
   minRRRatio: number;
