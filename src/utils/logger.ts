@@ -50,6 +50,29 @@ const LEVEL_COLORS: Record<string, string> = {
   debug: COLORS.gray,
 };
 
+// ─── Otomatik Mesaj Renklendirici ───────────────────────────
+
+function colorizeMessage(msg: string): string {
+  let output = msg;
+  
+  // Fiyatlar ve Dolar Tutarları: $62,500.00 -> Bold Yeşil
+  output = output.replace(/\$([0-9,.]+)/g, (_, val) => `${COLORS.green}${COLORS.bright}$${val}${COLORS.reset}`);
+  
+  // Pariteler: [BTC/USDT] -> Bold Cyan
+  output = output.replace(/\[([A-Z0-9]+\/[A-Z0-9]+)\]/g, (_, val) => `[${COLORS.cyan}${COLORS.bright}${val}${COLORS.reset}]`);
+  
+  // Olumlu / Yükseliş: LONG, BUY, TP1, TP2, WIN -> Bold Yeşil
+  output = output.replace(/\b(LONG|BUY|TP1|TP2|WIN|BULLISH)\b/g, (_, val) => `${COLORS.green}${COLORS.bright}${val}${COLORS.reset}`);
+  
+  // Olumsuz / Düşüş: SHORT, SELL, SL, LOSS -> Bold Kırmızı
+  output = output.replace(/\b(SHORT|SELL|SL|LOSS|BEARISH)\b/g, (_, val) => `${COLORS.red}${COLORS.bright}${val}${COLORS.reset}`);
+  
+  // Yüzdeler: %1.00 -> Bold Sarı
+  output = output.replace(/%([0-9.]+)/g, (_, val) => `${COLORS.yellow}${COLORS.bright}%${val}${COLORS.reset}`);
+
+  return output;
+}
+
 // ─── Custom Format ──────────────────────────────────────────
 
 const botFormat = winston.format.printf(({ level, message, timestamp, module: mod }) => {
@@ -62,8 +85,9 @@ const botFormat = winston.format.printf(({ level, message, timestamp, module: mo
   const moduleStr = mod ? (MODULE_ICONS[mod as string] || mod) : '       ';
   const levelColor = LEVEL_COLORS[level] || COLORS.white;
   const separator = `${COLORS.dim}│${COLORS.reset}`;
+  const coloredMsg = colorizeMessage(message);
 
-  return `${COLORS.gray}[${time}]${COLORS.reset} ${levelColor}${moduleStr}${COLORS.reset} ${separator} ${message}`;
+  return `${COLORS.gray}[${time}]${COLORS.reset} ${levelColor}${moduleStr}${COLORS.reset} ${separator} ${coloredMsg}`;
 });
 
 // ─── Winston Logger Instance ────────────────────────────────
