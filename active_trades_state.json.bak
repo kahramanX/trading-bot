@@ -1,0 +1,36 @@
+{
+  "LSK/USDT": {
+    "symbol": "LSK/USDT",
+    "entryOrder": {
+      "id": "184924251",
+      "clientOrderId": "entry_1789681559789",
+      "symbol": "LSK/USDT",
+      "type": "ENTRY",
+      "side": "buy",
+      "price": 0.4383,
+      "quantity": 3215,
+      "filledQuantity": 0,
+      "status": "CANCELLED",
+      "createdAt": 1789681559789,
+      "updatedAt": 1789681835567
+    },
+    "signal": {
+      "symbol": "LSK/USDT",
+      "direction": "LONG",
+      "entryPrice": 0.43825000000000003,
+      "stopLoss": 0.4254,
+      "takeProfit1": 0.45752500000000007,
+      "takeProfit2": 0.4703750000000001,
+      "htfBias": "BULLISH",
+      "triggerType": "FVG",
+      "confidence": 0.55,
+      "reason": "BULLISH HTF → BULLISH MSS → FVG @ 0.44"
+    },
+    "tp1Hit": false,
+    "breakEvenApplied": false,
+    "tp1Price": 0.4575,
+    "tp2Price": 0.4704,
+    "tp1Quantity": 1607,
+    "tp2Quantity": 1608
+  }
+}

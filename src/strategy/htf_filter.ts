@@ -14,12 +14,12 @@ export interface HTFFilterResult {
   emaValue: number;           // Son EMA(200) değeri
   currentPrice: number;       // Son kapanış fiyatı
   emaDistance: number;         // Fiyat-EMA mesafesi (%)
-  structureBias: MarketBias;  // 4H yapı analizi
+  structureBias: MarketBias;  // HTF yapı analizi
   reason: string;             // İnsan okunur açıklama
 }
 
 /**
- * HTF (4H) trend filtresini çalıştırır.
+ * HTF trend filtresini çalıştırır.
  *
  * Kurallar:
  *   1. EMA(200) üstü = bullish bias → sadece LONG
@@ -27,10 +27,11 @@ export interface HTFFilterResult {
  *   3. EMA(200) yakınında (%0.5 band) + yapı kararsız = NEUTRAL → işlem yok
  *   4. EMA ve yapı çelişiyorsa = NEUTRAL → işlem yok
  *
- * @param htfCandles - 4H mum verileri (min 210 mum gerekir)
+ * @param htfCandles - HTF mum verileri (min 210 mum gerekir)
+ * @param tf - Zaman dilimi etiketi (varsayılan: 'HTF')
  * @returns HTFFilterResult
  */
-export function runHTFFilter(htfCandles: Candle[]): HTFFilterResult {
+export function runHTFFilter(htfCandles: Candle[], tf: string = 'HTF'): HTFFilterResult {
   const currentPrice = htfCandles[htfCandles.length - 1]!.close;
 
   // ─── EMA(200) Hesapla ────────────────────────────────────
@@ -43,14 +44,14 @@ export function runHTFFilter(htfCandles: Candle[]): HTFFilterResult {
       currentPrice,
       emaDistance: 0,
       structureBias: 'NEUTRAL',
-      reason: '4H EMA(200) hesaplanamıyor — yetersiz veri',
+      reason: `${tf} EMA(200) hesaplanamıyor — yetersiz veri`,
     };
   }
 
   const emaValue = emaValues[emaValues.length - 1]!;
   const emaDistance = ((currentPrice - emaValue) / emaValue) * 100;
 
-  // ─── 4H Market Structure Analizi ─────────────────────────
+  // ─── HTF Market Structure Analizi ─────────────────────────
   // Daha büyük pivot'lar (leftBars=10) kullanarak daha anlamlı yapı yakala
   const htfStructure = analyzeMarketStructure(htfCandles, 10, 10);
   const structureBias = htfStructure.bias;
@@ -70,20 +71,20 @@ export function runHTFFilter(htfCandles: Candle[]): HTFFilterResult {
     if (structureBias === 'BEARISH') {
       // Kural 4: EMA bullish ama yapı bearish → çelişki → NEUTRAL
       bias = 'NEUTRAL';
-      reason = `EMA bullish ama 4H yapı bearish — çelişki. Bekle.`;
+      reason = `EMA bullish ama ${tf} yapı bearish — çelişki. Bekle.`;
     } else {
       bias = 'BULLISH';
-      reason = `Fiyat EMA(200) üstünde (+${emaDistance.toFixed(2)}%). 4H yapı: ${structureBias}. LONG ara.`;
+      reason = `Fiyat EMA(200) üstünde (+${emaDistance.toFixed(2)}%). ${tf} yapı: ${structureBias}. LONG ara.`;
     }
   }
   // Kural 2: EMA altı
   else {
     if (structureBias === 'BULLISH') {
       bias = 'NEUTRAL';
-      reason = `EMA bearish ama 4H yapı bullish — çelişki. Bekle.`;
+      reason = `EMA bearish ama ${tf} yapı bullish — çelişki. Bekle.`;
     } else {
       bias = 'BEARISH';
-      reason = `Fiyat EMA(200) altında (${emaDistance.toFixed(2)}%). 4H yapı: ${structureBias}. SHORT ara.`;
+      reason = `Fiyat EMA(200) altında (${emaDistance.toFixed(2)}%). ${tf} yapı: ${structureBias}. SHORT ara.`;
     }
   }
 
@@ -107,5 +108,5 @@ export function logHTFFilter(symbol: string, result: HTFFilterResult): void {
   logger.info('HTF', `[${symbol}]   EMA(200): ${logger.formatUSD(result.emaValue)} | ` +
     `Fiyat: ${logger.formatUSD(result.currentPrice)} | ` +
     `Mesafe: ${result.emaDistance >= 0 ? '+' : ''}${result.emaDistance.toFixed(2)}%`);
-  logger.info('HTF', `[${symbol}]   Yapı: ${result.structureBias} | ${result.reason.replace(/4H/g, 'HTF')}`);
+  logger.info('HTF', `[${symbol}]   Yapı: ${result.structureBias} | ${result.reason}`);
 }

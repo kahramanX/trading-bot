@@ -46,7 +46,7 @@ export function runEntryEngine(
   logger.info('ENGINE', `━━━ [${symbol}] Strateji Analizi Başlıyor ━━━`);
 
   // ─── Adım 1: HTF Filtre ──────────────────────────────────
-  const htfResult = runHTFFilter(htfCandles);
+  const htfResult = runHTFFilter(htfCandles, config.htfTimeframe);
   logHTFFilter(symbol, htfResult);
 
   if (htfResult.bias === 'NEUTRAL') {
@@ -67,7 +67,7 @@ export function runEntryEngine(
 
   // MSS onayı gerekli
   if (!ltfStructure.lastMSS) {
-    return noSignal(`[${symbol}] 15m'de MSS (yapı kırılması) algılanmadı. Bekleniyor...`, 'MSS_CHECK');
+    return noSignal(`[${symbol}] ${config.ltfTimeframe}'de MSS (yapı kırılması) algılanmadı. Bekleniyor...`, 'MSS_CHECK');
   }
 
   // MSS yönü HTF ile uyumlu olmalı

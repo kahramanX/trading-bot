@@ -26,6 +26,11 @@ async function mainLoop(): Promise<void> {
     pairs: config.tradingPairs,
     dryRun: config.dryRun,
     riskPct: config.riskPerTradePct,
+    network: config.network,
+    marketType: config.marketType,
+    leverage: config.leverage,
+    htfTimeframe: config.htfTimeframe,
+    ltfTimeframe: config.ltfTimeframe,
   });
 
   if (config.dryRun) {

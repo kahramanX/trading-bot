@@ -126,19 +126,47 @@ export const logger = {
     console.log(`${COLORS.dim}${'─'.repeat(72)}${COLORS.reset}`);
   },
 
-  banner(config: { pairs: string[]; dryRun: boolean; riskPct: number }): void {
+  banner(config: {
+    pairs: string[];
+    dryRun: boolean;
+    riskPct: number;
+    network?: string;
+    marketType?: string;
+    leverage?: number;
+    htfTimeframe?: string;
+    ltfTimeframe?: string;
+  }): void {
+    const net = (config.network ?? 'demo').toUpperCase();
+    const mType = (config.marketType ?? 'futures').toUpperCase();
+    const levStr = config.marketType === 'futures' && config.leverage ? ` (${config.leverage}x)` : '';
+    const tfInfo = config.htfTimeframe && config.ltfTimeframe ? `TF: ${config.htfTimeframe}/${config.ltfTimeframe}` : '';
+
     console.log('');
     console.log(`${COLORS.bright}${COLORS.cyan}╔══════════════════════════════════════════════════════════╗${COLORS.reset}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}║     ⚡ PRICE ACTION TRADING BOT — Binance Testnet ⚡    ║${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║     ⚡ PRICE ACTION TRADING BOT — ${net} ⚡${COLORS.reset}`);
     console.log(`${COLORS.bright}${COLORS.cyan}╠══════════════════════════════════════════════════════════╣${COLORS.reset}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  Çiftler: ${COLORS.bright}${config.pairs.length} adet${COLORS.reset}   Risk: ${COLORS.bright}%${config.riskPct}${COLORS.reset}   Mode: ${config.dryRun ? `${COLORS.yellow}DRY-RUN 🧪${COLORS.reset}` : `${COLORS.green}LIVE 🔴${COLORS.reset}`}      ${COLORS.bright}${COLORS.cyan}║${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  Piyasa: ${COLORS.bright}${mType}${levStr}${COLORS.reset}   ${tfInfo ? `${COLORS.yellow}${tfInfo}${COLORS.reset}   ` : ''}Mode: ${config.dryRun ? `${COLORS.yellow}DRY-RUN 🧪${COLORS.reset}` : `${COLORS.green}LIVE 🔴${COLORS.reset}`}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  Çiftler: ${COLORS.bright}${config.pairs.length} adet${COLORS.reset}   Risk: ${COLORS.bright}%${config.riskPct}${COLORS.reset}`);
     console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  ${COLORS.dim}${config.pairs.join(', ')}${COLORS.reset}`);
     console.log(`${COLORS.bright}${COLORS.cyan}╚══════════════════════════════════════════════════════════╝${COLORS.reset}`);
     console.log('');
   },
 
-  formatUSD(amount: number): string {
-    return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  formatUSD(amount: number, maxDecimals?: number): string {
+    const abs = Math.abs(amount);
+    let minDec = 2;
+    let maxDec = 2;
+    if (maxDecimals !== undefined) {
+      maxDec = maxDecimals;
+      minDec = Math.min(2, maxDecimals);
+    } else if (abs > 0 && abs < 0.001) {
+      minDec = 4;
+      maxDec = 8;
+    } else if (abs > 0 && abs < 1) {
+      minDec = 2;
+      maxDec = 4;
+    }
+    return `$${amount.toLocaleString('en-US', { minimumFractionDigits: minDec, maximumFractionDigits: maxDec })}`;
   },
 
   formatPct(pct: number): string {

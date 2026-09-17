@@ -540,7 +540,7 @@ export async function manageActiveTrade(
   // 2. Durum: Giriş Emri Henüz Açık (Beklemede)
   if (trade.entryOrder.status === 'OPEN') {
     // 2.1 Ghost Emir Kontrolü (Setup bozuldu mu?)
-    const htfResult = runHTFFilter(htfCandles);
+    const htfResult = runHTFFilter(htfCandles, config.htfTimeframe);
     const ltfStructure = analyzeMarketStructure(ltfCandles, 5, 5);
 
     let setupBroken = false;
@@ -548,10 +548,10 @@ export async function manageActiveTrade(
 
     if (htfResult.bias !== trade.signal.htfBias) {
       setupBroken = true;
-      cancelReason = `4H trend değişti (${trade.signal.htfBias} → ${htfResult.bias})`;
+      cancelReason = `${config.htfTimeframe} trend değişti (${trade.signal.htfBias} → ${htfResult.bias})`;
     } else if (ltfStructure.lastMSS && ltfStructure.lastMSS.type !== trade.signal.htfBias) {
       setupBroken = true;
-      cancelReason = `15m'de ters yönde MSS (${ltfStructure.lastMSS.type}) algılandı`;
+      cancelReason = `${config.ltfTimeframe}'de ters yönde MSS (${ltfStructure.lastMSS.type}) algılandı`;
     }
 
     if (setupBroken) {
@@ -685,7 +685,45 @@ export async function manageActiveTrade(
 
     // 3.2 Kural: TP1 Gerçekleştiğinde SL Break-Even'a çekilmelidir
     if ((trade.tp1Order?.status === 'FILLED' || trade.tp1Hit) && !trade.breakEvenApplied) {
-      logger.info('ORDER', `[${symbol}] 🎯 TP1 hedefine ulaşıldı! Pozisyonun %50'si kârla satıldı. Kalan kısım için SL Break-Even (başa baş) seviyesine çekiliyor...`);
+      trade.breakEvenApplied = true;
+
+      // Eğer TP2 emri yoksa (küçük bakiye/lot yüzünden TP'ler birleştirilmişse), TP1 pozisyonu tamamen kapatır!
+      if (!trade.tp2Order) {
+        logger.separator();
+        const totalQty = trade.entryOrder.filledQuantity || trade.entryOrder.quantity;
+        logger.info('ORDER', `[${symbol}] 🏆 TP hedefine ulaşıldı! Pozisyonun tamamı (${totalQty} lot) kârla kapatıldı.`);
+        playSound('PROFIT');
+
+        // Stop-loss emrini iptal et
+        if (!config.dryRun && trade.stopLossOrder?.status === 'OPEN') {
+          const exchange = getExchange();
+          try {
+            await exchange.cancelOrder(trade.stopLossOrder.id, symbol);
+          } catch { /* ignore */ }
+        }
+
+        const tpPrice = trade.tp1Price ?? trade.signal.takeProfit1;
+        const totalNetPnL = calculateNetPnL(trade.entryOrder.price, tpPrice, totalQty, trade.signal.direction, config, constraints);
+
+        recordTradeResult(cbState, {
+          timestamp: Date.now(),
+          symbol,
+          direction: trade.signal.direction,
+          entryPrice: trade.entryOrder.price,
+          exitPrice: tpPrice,
+          quantity: totalQty,
+          pnl: totalNetPnL,
+          isWin: true,
+          exitReason: 'TAKE_PROFIT_1',
+        }, config);
+
+        clearActiveTrade(symbol);
+        logger.separator();
+        return;
+      }
+
+      const tp1Qty = trade.tp1Quantity ?? (trade.entryOrder.quantity * 0.5);
+      logger.info('ORDER', `[${symbol}] 🎯 TP1 hedefine ulaşıldı! ${tp1Qty} lot kârla satıldı. Kalan kısım için SL Break-Even (başa baş) seviyesine çekiliyor...`);
       playSound('PROFIT');
       await applyBreakEvenStopLoss(symbol, config, constraints);
     }
@@ -693,7 +731,8 @@ export async function manageActiveTrade(
     // 3.3 Kural: TP2 Doldu (Tam Kâr Alımı ile Pozisyon Kapandı)
     if (trade.tp2Order?.status === 'FILLED') {
       logger.separator();
-      logger.info('ORDER', `[${symbol}] 🏆 TP2 hedefine ulaşıldı! Pozisyonun kalan %50'si de satıldı. İşlem maksimum kârla başarıyla kapatıldı.`);
+      const tp2Qty = trade.tp2Quantity ?? (trade.entryOrder.quantity * 0.5);
+      logger.info('ORDER', `[${symbol}] 🏆 TP2 hedefine ulaşıldı! Kalan ${tp2Qty} lot da kârla satıldı. İşlem maksimum kârla başarıyla kapatıldı.`);
       playSound('PROFIT');
 
       // Stop-loss emrini iptal et
@@ -705,7 +744,6 @@ export async function manageActiveTrade(
       }
 
       const tp1Qty = trade.tp1Quantity ?? (trade.entryOrder.quantity * 0.5);
-      const tp2Qty = trade.tp2Quantity ?? (trade.entryOrder.quantity * 0.5);
       const tp1Price = trade.tp1Price ?? trade.signal.takeProfit1;
       const tp2Price = trade.tp2Price ?? trade.signal.takeProfit2;
 
