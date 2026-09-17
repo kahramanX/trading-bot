@@ -70,23 +70,26 @@ export function calculateATR(candles: Candle[], period: number = 14): number | n
  * @returns EMA değerleri dizisi (son candles.length - period + 1 eleman)
  */
 export function calculateEMA(candles: Candle[], period: number = 200): number[] {
-  if (candles.length < period) {
+  if (candles.length < 10) {
     return [];
   }
 
-  const multiplier = 2 / (period + 1);
+  // Testnet ortamlarında mum sayısı 200'den az olabilir.
+  // Bu durumda mevcut geçmişe göre uyarlanmış periyot kullanılır.
+  const effectivePeriod = Math.min(period, Math.max(10, Math.floor(candles.length * 0.8)));
+  const multiplier = 2 / (effectivePeriod + 1);
   const emaValues: number[] = [];
 
-  // İlk EMA = ilk 'period' mumun SMA'sı
+  // İlk EMA = ilk 'effectivePeriod' mumun SMA'sı
   let sum = 0;
-  for (let i = 0; i < period; i++) {
+  for (let i = 0; i < effectivePeriod; i++) {
     sum += candles[i]!.close;
   }
-  let ema = sum / period;
+  let ema = sum / effectivePeriod;
   emaValues.push(ema);
 
   // Geri kalan mumlar için EMA hesapla
-  for (let i = period; i < candles.length; i++) {
+  for (let i = effectivePeriod; i < candles.length; i++) {
     ema = (candles[i]!.close - ema) * multiplier + ema;
     emaValues.push(ema);
   }

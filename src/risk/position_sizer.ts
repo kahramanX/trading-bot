@@ -1,0 +1,133 @@
+// ══════════════════════════════════════════════════════════════
+// position_sizer.ts — Dinamik Pozisyon Büyüklüğü (Multi-Pair)
+// Her coin'in kendi hassasiyeti (stepSize, tickSize, minNotional)
+// ile hesaplama yapılır. $5 kuralı zarif reddetme.
+// ══════════════════════════════════════════════════════════════
+
+import type {
+  PositionSizeResult,
+  BotConfig,
+  TradeDirection,
+  SymbolConstraints,
+} from '../utils/types.js';
+import { calculateTradeCosts } from './cost_calculator.js';
+import { floorToStepSize, roundToTickSize } from '../utils/candle_utils.js';
+import { logger } from '../utils/logger.js';
+
+/**
+ * Dinamik pozisyon büyüklüğü hesaplar.
+ * Formül: (balance × %risk - costs) / SL distance
+ * Her coin'in LOT_SIZE/MIN_NOTIONAL/PRICE_FILTER kuralları otomatik uygulanır.
+ */
+export function calculatePositionSize(
+  balance: number,
+  entryPrice: number,
+  stopLoss: number,
+  direction: TradeDirection,
+  config: BotConfig,
+  constraints: SymbolConstraints,
+): PositionSizeResult {
+
+  const riskAmount = balance * (config.riskPerTradePct / 100);
+
+  const stopDistance = direction === 'LONG'
+    ? entryPrice - stopLoss
+    : stopLoss - entryPrice;
+
+  if (stopDistance <= 0) {
+    return rejectPosition(riskAmount, 0, stopDistance,
+      `[${constraints.symbol}] Geçersiz SL mesafesi: ${stopDistance.toFixed(2)}. ` +
+      `${direction} için SL, giriş fiyatının ${direction === 'LONG' ? 'altında' : 'üstünde'} olmalı.`);
+  }
+
+  // İlk tahminde kaba quantity hesapla, maliyeti düşür
+  const roughQuantity = riskAmount / stopDistance;
+  const roughCosts = calculateTradeCosts(
+    entryPrice, stopLoss, roughQuantity, direction, config, constraints,
+  );
+
+  const netRisk = riskAmount - roughCosts.totalCost;
+
+  if (netRisk <= 0) {
+    return rejectPosition(riskAmount, roughCosts.totalCost, stopDistance,
+      `[${constraints.symbol}] Maliyetler (${logger.formatUSD(roughCosts.totalCost)}) risk miktarını (${logger.formatUSD(riskAmount)}) aşıyor.`);
+  }
+
+  // Gerçek quantity — coin'in stepSize'ına göre yuvarlanır
+  let quantity = netRisk / stopDistance;
+  quantity = floorToStepSize(quantity, constraints.stepSize);
+
+  if (quantity < constraints.minQty) {
+    return rejectPosition(riskAmount, roughCosts.totalCost, stopDistance,
+      `[${constraints.symbol}] Hesaplanan miktar (${quantity}) minimum lot büyüklüğünün (${constraints.minQty}) altında.`);
+  }
+
+  // Fiyat coin'in tickSize'ına göre yuvarlanır
+  const adjustedEntry = roundToTickSize(entryPrice, constraints.tickSize);
+  const positionValue = quantity * adjustedEntry;
+
+  // $5 / MIN_NOTIONAL kontrolü — throw yerine zarif reddetme
+  const effectiveMinNotional = Math.max(constraints.minNotional, 5);
+  if (positionValue < effectiveMinNotional) {
+    const reason = positionValue < 5
+      ? `[${constraints.symbol}] İşlem reddedildi ($5 kuralı): Pozisyon değeri ${logger.formatUSD(positionValue)} < $5 minimum.`
+      : `[${constraints.symbol}] İşlem reddedildi (MIN_NOTIONAL): Pozisyon değeri ${logger.formatUSD(positionValue)} < ${logger.formatUSD(constraints.minNotional)} minimum.`;
+    return rejectPosition(riskAmount, roughCosts.totalCost, stopDistance, reason);
+  }
+
+  // Nihai maliyet hesaplama (gerçek quantity ile)
+  const finalCosts = calculateTradeCosts(
+    adjustedEntry, stopLoss, quantity, direction, config, constraints,
+  );
+
+  const result: PositionSizeResult = {
+    quantity,
+    positionValue,
+    riskAmount,
+    riskPercent: config.riskPerTradePct,
+    stopDistance,
+    totalCosts: finalCosts,
+    isValid: true,
+  };
+
+  logPositionSize(result, balance, adjustedEntry, stopLoss, constraints.symbol);
+  return result;
+}
+
+function rejectPosition(
+  riskAmount: number,
+  totalCost: number,
+  stopDistance: number,
+  reason: string,
+): PositionSizeResult {
+  logger.warn('SIZE', reason);
+  return {
+    quantity: 0,
+    positionValue: 0,
+    riskAmount,
+    riskPercent: 0,
+    stopDistance,
+    totalCosts: {
+      entryCommission: 0, exitCommission: 0, slippageCost: 0,
+      totalCost, effectiveEntry: 0, effectiveExit: 0,
+    },
+    isValid: false,
+    rejectReason: reason,
+  };
+}
+
+function logPositionSize(
+  result: PositionSizeResult,
+  balance: number,
+  entryPrice: number,
+  stopLoss: number,
+  symbol: string,
+): void {
+  logger.info('RISK', `[${symbol}] Kasa: ${logger.formatUSD(balance)} | ` +
+    `${logger.formatPct(result.riskPercent)} Risk = ${logger.formatUSD(result.riskAmount)} | ` +
+    `Maliyet: ${logger.formatUSD(result.totalCosts.totalCost)} | ` +
+    `Net Risk: ${logger.formatUSD(result.riskAmount - result.totalCosts.totalCost)}`);
+
+  logger.info('SIZE', `[${symbol}] SL Mesafesi: ${logger.formatUSD(result.stopDistance)} | ` +
+    `Miktar: ${result.quantity} | Pozisyon: ${logger.formatUSD(result.positionValue)}`);
+}
