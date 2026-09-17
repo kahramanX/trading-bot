@@ -64,37 +64,7 @@ async function checkAccountStatus() {
         }
         console.log(`${C.gray}==================================================${C.reset}\n`);
 
-        // 2. AÇIK EMİRLER SORGULASI
-        const rawPairs = process.env.TRADING_PAIRS || 'BTC/USDT,ETH/USDT';
-        const pairsToCheck = rawPairs.split(',').map(p => p.trim());
 
-        console.log(`${C.yellow}${C.bold}📋 BEKLEYEN AÇIK EMİRLER (Pusu - ${pairsToCheck.length} Çift):${C.reset}`);
-        let hasOpenOrders = false;
-
-        for (const pair of pairsToCheck) {
-            try {
-                const openOrders = await exchange.fetchOpenOrders(pair);
-
-                if (openOrders.length > 0) {
-                    hasOpenOrders = true;
-                    openOrders.forEach(order => {
-                        const sideColor = order.side.toLowerCase() === 'buy' ? C.green : C.red;
-                        console.log(`  - [${C.bold}${pair}${C.reset}] ${sideColor}${order.side.toUpperCase()}${C.reset} LIMIT | Fiyat: ${C.bold}$${order.price}${C.reset} | Miktar: ${order.amount} | Durum: ${C.cyan}${order.status}${C.reset}`);
-                    });
-                }
-            } catch (e: any) {
-                if (e.name === 'BadSymbol' || (e.message && e.message.includes('symbol'))) {
-                    console.log(`  ${C.gray}* [${pair}] Bu piyasada (veya ağda) bulunamadı, atlandı.${C.reset}`);
-                } else {
-                    console.log(`  ${C.red}* [${pair}] Emirler alınırken hata: ${e.message.split('\n')[0]}${C.reset}`);
-                }
-            }
-        }
-
-        if (!hasOpenOrders) {
-            console.log(`  ${C.gray}Şu an borsada bekleyen (pusuda) açık emir yok.${C.reset}`);
-        }
-        console.log(`\n${C.gray}==================================================${C.reset}\n`);
 
     } catch (error) {
         console.error("❌ Bir hata oluştu:", error);
