@@ -6,6 +6,9 @@ describe('cost_calculator', () => {
   const mockConfig: BotConfig = {
     apiKey: 'test',
     apiSecret: 'test',
+    network: 'demo',
+    marketType: 'futures',
+    leverage: 1,
     tradingPairs: ['BTC/USDT'],
     riskPerTradePct: 1,
     maxDailyLossPct: 3,

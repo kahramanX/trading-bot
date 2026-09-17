@@ -6,6 +6,9 @@ describe('position_sizer', () => {
   const mockConfig: BotConfig = {
     apiKey: 'test',
     apiSecret: 'test',
+    network: 'demo',
+    marketType: 'futures',
+    leverage: 1,
     tradingPairs: ['BTC/USDT'],
     riskPerTradePct: 1, // 1% risk
     maxDailyLossPct: 3,
