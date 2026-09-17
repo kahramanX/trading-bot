@@ -1,35 +1,37 @@
-# ⚡ Price Action Trading Bot (Binance Spot Testnet)
+# ⚡ Smart Money (SMC) Trading Bot (Binance Spot & Futures)
 
-Kurumsal seviyede algoritmik risk yönetimi ve saf **Price Action** metodolojisi ile çalışan, TypeScript / Node.js tabanlı kripto alım-satım botu.
+Kurumsal seviyede algoritmik risk yönetimi ve saf **Price Action / Smart Money Concepts (SMC)** metodolojisi ile çalışan, TypeScript / Node.js tabanlı kripto alım-satım botu. 
 
-Bu bot bir "para basma makinesi" değildir; gecikmeli ve aşırı uyarlanmış (overfitting) indikatörler (RSI, MACD vb.) **kullanmaz**. Komisyonları, kaymaları (slippage), piyasa rejimini (range/trend) ve borsa kurallarını milisaniyelik disiplinle hesaba katan bir quant risk motorudur.
+Bu bot bir "para basma makinesi" değildir; RSI, MACD gibi gecikmeli (lagging) indikatörler **kullanmaz**. Piyasa yapısı (Market Structure), Fiyat Boşlukları (FVG - Fair Value Gap) ve Kırılım Bloklarını (Breaker Block) analiz eder. Komisyonları, kaymaları (slippage) ve borsa limitlerini milisaniyelik disiplinle hesaba katan bir risk motoruna sahiptir. Hem **Spot** hem de **Vadeli İşlemler (Futures)** piyasalarında çalışabilir.
 
 ---
 
 ## 🎯 Strateji Mantığı (Edge)
 
-```
-[4H HTF Filtresi]
+Bot, çoklu zaman dilimi (Multi-Timeframe) analizi yaparak trend yönünde işlemlere girer.
+
+```text
+[4H HTF Filtresi - Yön Tayini]
    │
-   ├── EMA(200) + 4H Market Yapısı (HH/HL vs LH/LL)
-   ├── Fiyat EMA bandında sıkışmışsa veya çelişki varsa → Range → NAKİTTE BEKLE ⚪
-   ├── Yükseliş Trendi → Sadece LONG ara 🟢
-   └── Düşüş Trendi → Sadece SHORT ara 🔴
+   ├── EMA(20/50) + 4H Market Yapısı (Swing Pivotlar)
+   ├── Fiyat yatay bantta (Range) ise → NAKİTTE BEKLE ⚪
+   ├── Yükseliş Trendi (BULLISH) → Sadece LONG ara 🟢
+   └── Düşüş Trendi (BEARISH) → Sadece SHORT ara 🔴
    │
-[15m LTF Giriş Motoru]
+[15m LTF Giriş Motoru - Tetikleyici]
    │
-   ├── 1. MSS (Market Structure Shift / CHoCH) onayı şart
+   ├── 1. MSS (Market Structure Shift / CHoCH) onayı şart (Trend yönünde kırılım)
    ├── 2. FVG (Fair Value Gap) ve Breaker Block tespiti
-   ├── 3. Confluence (FVG + Breaker örtüşmesi) kontrolü
-   ├── 4. Fiyat pusu bölgesine çekildiğinde LIMIT emir
+   ├── 3. Confluence (FVG + Breaker örtüşmesi) kontrolü (Güven: %85+)
+   ├── 4. Fiyat pusu bölgesine (Mitigation) çekildiğinde LIMIT veya MARKET emir
    │
 [Risk & Emir Yönetimi]
    │
-   ├── Pozisyon Sizer: (Kasa × %1 Risk - Maliyetler) / SL Mesafesi
-   ├── Borsa Filtreleri: LOT_SIZE, PRICE_FILTER, MIN_NOTIONAL ($5 kuralı)
+   ├── Pozisyon Sizer: (Kasa × %Risk - Maliyetler) / SL Mesafesi
+   ├── Borsa Filtreleri: LOT_SIZE, TICK_SIZE, MIN_NOTIONAL ($5 kuralı)
    ├── Kademeli TP: %50 @ 1:2 (TP1) + %50 @ 1:3 (TP2)
-   ├── TP1 Hit → Kalan pozisyonun Stop-Loss'u BREAK-EVEN (giriş) seviyesine çekilir
-   ├── Ghost Emir Koruması: Pusu dolmadan trend veya MSS yön değiştirirse emir derhal İPTAL
+   ├── Break-Even (BE): TP1 Hit → Kalan pozisyonun Stop-Loss'u GİRİŞ seviyesine çekilir
+   ├── Ghost Emir Koruması: Fiyat hedefe varmadan setup bozulursa pusu iptal edilir
    └── Circuit Breaker: 3 ardışık stop-loss veya %3 günlük kayıpta 24 SAAT ŞALTER İNDİRME
 ```
 
@@ -37,34 +39,29 @@ Bu bot bir "para basma makinesi" değildir; gecikmeli ve aşırı uyarlanmış (
 
 ## 🚀 Temel Özellikler
 
-1. **Multi-Pair Desteği**:
-   - `TRADING_PAIRS=BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,AVAX/USDT,LINK/USDT`
-   - Borsa filtreleri (tickSize, stepSize, minNotional) her çift için dinamik olarak çekilir ve önbelleğe alınır.
+1. **Spot & Futures Desteği:**
+   - `.env` üzerinden `MARKET_TYPE=spot` veya `MARKET_TYPE=futures` seçimi.
+   - Futures modunda kaldıraç (`FUTURES_LEVERAGE`) desteği ve bakiye (margin) kontrolü.
 
-2. **Görünmeyen Maliyet Motoru (`cost_calculator`)**:
-   - Giriş limit komisyonu (Maker) + çıkış stop komisyonu (Taker) + slippage (fiyat kayması) peşinen riskten düşülür.
-   - Efektif R:R gerçek maliyetler dahil hesaplanır.
+2. **Çoklu Parite (Multi-Pair) Tarama:**
+   - Onlarca pariteyi eşzamanlı izler (Örn: BTC, ETH, SOL).
+   - Her paritenin `stepSize` ve `tickSize` gibi borsa limitleri dinamik çekilip önbelleklenir.
 
-3. **$5 Hard Minimum & Lot Filtresi (`position_sizer`)**:
-   - Pozisyon büyüklüğü Binance'in $5 veya minNotional sınırının altındaysa sistem patlamaz (throw yok); zarifçe reddedilir ve sebep loglanır.
+3. **Kusursuz Risk Yönetimi (`position_sizer`):**
+   - İşlem başına sabit risk (Örn: Kasanın %1'i).
+   - Sabit lot yerine; Stop mesafesi, Maker/Taker komisyonları ve Fiyat kayması (Slippage) düşülerek net pozisyon büyüklüğü hesaplanır.
+   - Eğer hesaplanan miktar borsanın $5 veya minNotional sınırının altındaysa zarifçe reddedilir, bot çökmez.
 
-4. **Kademeli TP & Otomatik Başa Baş (`order_manager`)**:
-   - TP1 (%50) gerçekleştiğinde, TP2 bekleyen kısmın SL emri borsada anında Break-Even fiyatına revize edilir.
-   - Kısmi dolum (partial fill) durumunda TP miktarları oransal olarak yeniden hesaplanır.
+4. **Kademeli Kar Al & Otomatik Başa Baş:**
+   - İşlem hedefine ulaştıkça kısmi kâr alınır (TP1 ve TP2).
+   - TP1 gerçekleştiğinde, kalan pozisyon risksiz hale getirilir (Stop noktası giriş fiyatına taşınır).
 
-5. **Ghost Emir İptali**:
-   - Fiyat henüz FVG / Breaker pusu bölgesine varmadan önce 15m'de ters yönde yeni bir MSS oluşursa veya 4H trend yönü bozulursa, tahtada bekleyen gerçekleşmemiş limit emir derhal iptal edilir.
+5. **Devre Kesici (Circuit Breaker - Şalter Sistemi):**
+   - İntikam işlemlerini (Revenge Trading) önlemek için; arka arkaya 3 stop veya günlük %3 kasa kaybında bot kendini kilitler ve 24 saat işlem yapmaz. 
+   - Durum diske yazılır (`circuit_breaker_state.json`); bot yeniden başlatılsa bile süre dolmadan işlem açmaz.
 
-6. **Circuit Breaker (İntikam İşlemi Koruması)**:
-   - 3 ardışık stop-loss veya %3 günlük kayıp durumunda bot 24 saat uykuya geçer.
-   - Durum `circuit_breaker_state.json` dosyasına diske kaydedilir; bot yeniden başlatılsa dahi uyku durumu korunur.
-
-7. **Şeffaf Terminal Loglaması (`logger`)**:
-   - Winston tabanlı renkli terminal logları. Her analiz adımı, kasa durumu, tetiklenme nedenleri ve ret gerekçeleri açıkça ekrana basılır. "Kara kutu" yoktur.
-
-8. **Çift Çalışma Modu**:
-   - `--dry-run`: Borsaya gerçek emir göndermeden canlı piyasa verileri üzerinde simülasyon.
-   - Canlı Mod: Testnet API anahtarlarıyla gerçek limit / stop emirleri.
+6. **Durum Kontrol Aracı (`check_status.ts`):**
+   - Cüzdan bakiyesini (Spot/Futures ayrı ayrı) ve piyasada pusuya yatmış bekleyen açık emirlerinizi kolayca listeleyebilirsiniz.
 
 ---
 
@@ -73,42 +70,29 @@ Bu bot bir "para basma makinesi" değildir; gecikmeli ve aşırı uyarlanmış (
 ```
 trading-bot/
 ├── src/
-│   ├── config.ts                     # .env okuma, tip-güvenli validasyon
-│   ├── index.ts                      # Multi-pair daemon ana döngüsü
+│   ├── config.ts                     # Ortam değişkenleri ve doğrulama
+│   ├── index.ts                      # Ana döngü (Daemon)
 │   ├── exchange/
-│   │   └── binance_client.ts         # ccxt Binance Spot Testnet, constraints cache
+│   │   └── binance_client.ts         # CCXT Binance API entegrasyonu
 │   ├── strategy/
-│   │   ├── htf_filter.ts             # 4H EMA(200) + Range/Trend filtresi
-│   │   ├── market_structure.ts       # Swing High/Low pivotlar, MSS (CHoCH) tespiti
-│   │   ├── fair_value_gap.ts         # 3 mumluk FVG tespiti ve mitigation takibi
-│   │   ├── breaker_block.ts          # Kırılan bloklar ve FVG ile Confluence
-│   │   └── entry_engine.ts           # Tüm strateji adımlarını birleştiren orkestratör
+│   │   ├── htf_filter.ts             # 4H Trend Filtresi
+│   │   ├── market_structure.ts       # Swing Pivotlar, MSS (CHoCH)
+│   │   ├── fair_value_gap.ts         # FVG tespiti
+│   │   ├── breaker_block.ts          # Breaker Block tespiti
+│   │   └── entry_engine.ts           # Tüm şartları birleştirip sinyal üreten motor
 │   ├── risk/
-│   │   ├── cost_calculator.ts        # Komisyon + slippage maliyet analizi
-│   │   ├── position_sizer.ts         # Dinamik pozisyon boyutlandırma ($5 koruması)
-│   │   ├── stop_loss.ts              # Swing Low/High ve Break-Even SL
-│   │   ├── take_profit.ts            # Kademeli TP (%50 @ 1:2, %50 @ 1:3) & Efektif R:R
-│   │   └── circuit_breaker.ts        # 3 kayıp / %3 günlük sınır şalteri (disk persist)
+│   │   ├── position_sizer.ts         # Lot ve margin hesaplama
+│   │   ├── stop_loss.ts              # Swing Low/High SL ve Break-Even hesaplama
+│   │   ├── take_profit.ts            # Kademeli TP hesaplama
+│   │   └── circuit_breaker.ts        # Günlük zarar ve ardışık stop koruması
 │   ├── orders/
-│   │   └── order_manager.ts          # Emir yaşam döngüsü, ghost cancel, BE SL taşıma
+│   │   └── order_manager.ts          # Emir iletimi, takibi ve iptali
 │   ├── utils/
-│   │   ├── candle_utils.ts           # ATR, EMA, yuvarlama ve mum yardımcıları
-│   │   ├── logger.ts                 # Renkli modüler konsol loglayıcı
-│   │   └── types.ts                  # TypeScript interface ve tipleri
-│   └── __tests__/                    # Vitest kapsamlı unit test paketi (29 test)
-│       ├── cost_calculator.test.ts
-│       ├── position_sizer.test.ts
-│       ├── circuit_breaker.test.ts
-│       ├── stop_loss.test.ts
-│       ├── take_profit.test.ts
-│       ├── market_structure.test.ts
-│       ├── fair_value_gap.test.ts
-│       ├── breaker_block.test.ts
-│       └── htf_filter.test.ts
+│   │   ├── logger.ts                 # Renkli terminal logları
+│   │   └── types.ts                  # TypeScript arayüzleri
+├── check_status.ts                   # Bakiye ve açık emir kontrol scripti
 ├── .env.example
-├── .gitignore
 ├── package.json
-├── tsconfig.json
 └── README.md
 ```
 
@@ -117,93 +101,75 @@ trading-bot/
 ## ⚙️ Kurulum & Yapılandırma
 
 ### 1. Gereksinimler
-- Node.js >= 20.0.0
-- npm >= 9.0.0
+- **Node.js** (v20.0.0 veya üzeri önerilir)
+- **npm** (v9 veya üzeri)
 
-### 2. Bağımlılıkları Yükle
+### 2. İndirme ve Yükleme
 ```bash
 npm install
 ```
 
-### 3. Ortam Değişkenlerini Ayarla
-`.env.example` dosyasını `.env` olarak kopyala:
+### 3. Ortam Değişkenleri (.env) Ayarı
+`.env.example` dosyasının adını `.env` olarak değiştirin veya kopyalayın:
 ```bash
 cp .env.example .env
 ```
-
-`.env` dosyasını Binance Spot Testnet anahtarlarınla düzenle:
+İçerisini kendi stratejinize ve API anahtarlarınıza göre düzenleyin:
 ```env
-# Ağ Seçimi (Testnet veya Live)
-NETWORK=testnet
+NETWORK=testnet                 # 'live', 'testnet' veya 'demo'
+MARKET_TYPE=futures             # 'spot' veya 'futures'
+FUTURES_LEVERAGE=5              # Kaldıraç oranı
 
-# Binance API Credentials
-BINANCE_API_KEY=your_api_key_here
-BINANCE_SECRET=your_secret_here
+BINANCE_API_KEY=senin_api_anahtarin
+BINANCE_SECRET=senin_gizli_anahtarin
 
-# Çoklu İşlem Çiftleri (Virgülle ayrılmış liste)
-TRADING_PAIRS=BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,AVAX/USDT,LINK/USDT
+TRADING_PAIRS=BTC/USDT,ETH/USDT,SOL/USDT
 
-# Risk Yönetimi
-RISK_PER_TRADE_PCT=1            # İşlem başına kasa yüzdesi riski
-MAX_DAILY_LOSS_PCT=3            # Günlük maksimum kayıp yüzdesi (şalter)
-MAX_CONSECUTIVE_LOSSES=3        # Arka arkaya maksimum stop-loss sayısı
+RISK_PER_TRADE_PCT=1            # İşlem başına kasa yüzdesi riski (Max %5)
+MAX_DAILY_LOSS_PCT=3            # Günlük maksimum kayıp yüzdesi (Şalter)
+MAX_CONSECUTIVE_LOSSES=3        # Peş peşe maksimum stop olma sınırı
 
-# R:R Hedefleri
-MIN_RR_RATIO=2.5                # Minimum Risk:Reward oranı
-TP1_RR=2                        # TP1 R:R seviyesi (%50 pozisyon)
-TP2_RR=3                        # TP2 R:R seviyesi (kalan %50)
-
-# Zaman Dilimleri
-HTF_TIMEFRAME=4h                # Yüksek zaman dilimi (trend filtresi)
-LTF_TIMEFRAME=15m               # Düşük zaman dilimi (giriş sinyalleri)
-
-# Maliyet Parametreleri
-MAKER_FEE_PCT=0.1               # Binance Maker komisyonu (%)
-TAKER_FEE_PCT=0.1               # Binance Taker komisyonu (%)
-SLIPPAGE_TICKS=2                # Tahmini fiyat kayması (tick sayısı)
+HTF_TIMEFRAME=4h
+LTF_TIMEFRAME=15m
 ```
+> **ÖNEMLİ:** API anahtarı alırken güvenliğiniz için yalnızca botun kullanacağı modlara (Spot veya Futures Trading) izin verin. **Withdrawal (Çekim)** yetkisini ASLA açmayın.
 
 ---
 
 ## 💻 Kullanım Komutları
 
-### 🧪 Simülasyon (Dry-Run Modu — Önerilen Başlangıç)
-Borsaya emir göndermeden canlı testnet verisi üzerinde tüm stratejiyi çalıştırır:
-```bash
-npm run dry-run
-```
-
-### 🚀 Canlı / Mock Modu
-Testnet veya Live Binance hesabınız üzerinde (`NETWORK` ayarına göre) gerçek emirleri açar:
+### 🚀 Botu Başlatma (Canlı Çalışma)
+`.env` dosyasındaki ağ (Testnet/Live) ve piyasa (Spot/Futures) ayarlarınıza göre çalışır.
 ```bash
 npm run dev
 ```
 
-### 🧪 Unit Testleri Çalıştır
-Tüm risk, matematik ve strateji fonksiyonlarını Vitest ile test eder:
+### 🧪 Kuru Çalıştırma (Dry-Run Modu)
+Borsaya **gerçek emir göndermeden**, sadece canlı piyasa verileri üzerinde stratejiyi simüle etmek için kullanılır. Sinyalleri ve risk hesaplamalarını terminalde test etmek için harikadır.
 ```bash
-npm test
+npm run dry-run
 ```
 
-### 🔍 TypeScript Tip Kontrolü
+### 🔎 Bakiye ve Açık Emirleri Kontrol Etme
+Bot çalışırken veya kapalıyken, güncel kasanızı (Spot ve Vadeli) ve borsada bekleyen (Pusu) limit/stop emirlerinizi listelemek için kullanın:
 ```bash
-npm run typecheck
+npx tsx check_status.ts
+```
+
+### 🩺 Testler ve Tip Kontrolü
+```bash
+npm test              # Vitest ile unit testleri çalıştırır
+npm run typecheck     # TypeScript hatalarını tarar
 ```
 
 ---
 
-## 🛡️ Risk & Güvenlik Kalkanı
+## 🛡️ Risk & Güvenlik Kalkanı (Özet)
 
-| Kural | Davranış | Kod Konumu |
-|---|---|---|
-| **$5 MIN_NOTIONAL** | Pozisyon < $5 ise işlem reddedilir, bot çökmez | `src/risk/position_sizer.ts` |
-| **Görünmeyen Maliyetler** | Komisyon + kayma peşinen risk bütçesinden düşülür | `src/risk/cost_calculator.ts` |
-| **Kademeli TP1 & BE** | TP1 dolunca SL otomatik başa baş seviyesine çekilir | `src/orders/order_manager.ts` |
-| **Ghost Emir İptali** | Fiyat pusuya gelmeden setup bozulursa emir silinir | `src/orders/order_manager.ts` |
-| **Devre Kesici (Circuit Breaker)** | 3 ardışık stop veya %3 günlük kayıpta 24s uyku | `src/risk/circuit_breaker.ts` |
-| **İntikam İşlemi Koruması** | Şalter durumu diske yazılır; restart ile sıfırlanmaz | `circuit_breaker_state.json` |
-
----
-
-## 📄 Lisans
-MIT License — Kişisel ve ticari kullanım için özgürce geliştirilebilir.
+| Kural | Ne İşe Yarar? |
+|---|---|
+| **Dinamik Lot** | İşlem başına sabit $ veya Sabit Lot riski ALMAZ. Stop mesafesine göre lotu küçültür/büyütür. Kasanın %1'inden fazlasını asla riske etmez. |
+| **Görünmeyen Maliyetler** | Borsaya ödeyeceğiniz Maker/Taker komisyonunu ve fiyat kaymasını (Slippage) baştan kâr/zarar hesabına katar. |
+| **Otomatik Başa Baş (BE)** | İşlem kâra geçip TP1 hedefine ulaştığında, stop noktasını giriş maliyetinize çeker. Kazanan işlem kayba dönüşmez. |
+| **Devre Kesici (Şalter)** | Ters giden bir piyasada arka arkaya stop olursanız (Örn: 3 kere) veya kasanız o gün %3 erirse, bot fişi çeker ve 24 saat işlem yapmaz. |
+| **$5 Min. Koruması** | Riskiniz veya stop aralığınız çok küçükse ve hesaplanan emir boyutu $5 altında kalırsa, Binance hatası almak yerine işlemi zarifçe reddeder. |

@@ -50,7 +50,7 @@ async function checkAccountStatus() {
         console.log(`${C.green}USDT: ${spotBalance['USDT']?.free || 0} ${C.gray}(Boşta) / ${C.reset}${spotBalance['USDT']?.used || 0} ${C.gray}(İşlemde)${C.reset}`);
         console.log(`${C.bold}BTC:  ${spotBalance['BTC']?.free || 0} ${C.gray}(Boşta) / ${C.reset}${spotBalance['BTC']?.used || 0} ${C.gray}(İşlemde)${C.reset}`);
         console.log(`${C.bold}ETH:  ${spotBalance['ETH']?.free || 0} ${C.gray}(Boşta) / ${C.reset}${spotBalance['ETH']?.used || 0} ${C.gray}(İşlemde)${C.reset}`);
-        
+
         // 2. BAKİYE SORGULASI (Futures)
         try {
             const futureBalance = await exchange.fetchBalance({ type: 'future' });
@@ -66,20 +66,28 @@ async function checkAccountStatus() {
 
         // 2. AÇIK EMİRLER SORGULASI
         const rawPairs = process.env.TRADING_PAIRS || 'BTC/USDT,ETH/USDT';
-        const pairsToCheck = rawPairs.split(',').map(p => p.trim()); 
-        
+        const pairsToCheck = rawPairs.split(',').map(p => p.trim());
+
         console.log(`${C.yellow}${C.bold}📋 BEKLEYEN AÇIK EMİRLER (Pusu - ${pairsToCheck.length} Çift):${C.reset}`);
         let hasOpenOrders = false;
 
         for (const pair of pairsToCheck) {
-            const openOrders = await exchange.fetchOpenOrders(pair);
-            
-            if (openOrders.length > 0) {
-                hasOpenOrders = true;
-                openOrders.forEach(order => {
-                    const sideColor = order.side.toLowerCase() === 'buy' ? C.green : C.red;
-                    console.log(`  - [${C.bold}${pair}${C.reset}] ${sideColor}${order.side.toUpperCase()}${C.reset} LIMIT | Fiyat: ${C.bold}$${order.price}${C.reset} | Miktar: ${order.amount} | Durum: ${C.cyan}${order.status}${C.reset}`);
-                });
+            try {
+                const openOrders = await exchange.fetchOpenOrders(pair);
+
+                if (openOrders.length > 0) {
+                    hasOpenOrders = true;
+                    openOrders.forEach(order => {
+                        const sideColor = order.side.toLowerCase() === 'buy' ? C.green : C.red;
+                        console.log(`  - [${C.bold}${pair}${C.reset}] ${sideColor}${order.side.toUpperCase()}${C.reset} LIMIT | Fiyat: ${C.bold}$${order.price}${C.reset} | Miktar: ${order.amount} | Durum: ${C.cyan}${order.status}${C.reset}`);
+                    });
+                }
+            } catch (e: any) {
+                if (e.name === 'BadSymbol' || (e.message && e.message.includes('symbol'))) {
+                    console.log(`  ${C.gray}* [${pair}] Bu piyasada (veya ağda) bulunamadı, atlandı.${C.reset}`);
+                } else {
+                    console.log(`  ${C.red}* [${pair}] Emirler alınırken hata: ${e.message.split('\n')[0]}${C.reset}`);
+                }
             }
         }
 
