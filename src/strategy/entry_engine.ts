@@ -12,6 +12,7 @@ import { getNearestActiveFVG, getLatestActiveFVG, isPriceInFVG, logFVGStatus } f
 import { getActiveBreakerBlocks, getLatestActiveBreakerBlock, isPriceInBreakerBlock, hasConfluence, logBreakerBlockStatus } from './breaker_block.js';
 import { calculateStopLoss } from '../risk/stop_loss.js';
 import { logger } from '../utils/logger.js';
+import { playSound } from '../utils/sound_player.js';
 
 export interface EngineResult {
   signal: TradeSignal | null;
@@ -179,6 +180,7 @@ export function runEntryEngine(
 
   logger.separator();
   logger.info('ENGINE', `[${symbol}] 🚀 SİNYAL OLUŞTU!`);
+  playSound('SIGNAL');
   logger.info('ENGINE', `  Yön: ${direction} | Tetik: ${triggerType} | Güven: ${(confidence * 100).toFixed(0)}%`);
   logger.info('ENGINE', `  Giriş: ${logger.formatUSD(entryPrice)} | SL: ${logger.formatUSD(stopLoss)} | TP1: ${logger.formatUSD(tp1)} | TP2: ${logger.formatUSD(tp2)}`);
   logger.info('ENGINE', `  Sebep: ${signal.reason}`);

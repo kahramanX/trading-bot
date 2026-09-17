@@ -56,9 +56,9 @@ export function calculateTakeProfitLevels(
   const tp2Quantity = quantity - tp1Quantity;
 
   // Efektif R:R (maliyetler dahil)
-  const tp1Costs = calculateTradeCosts(entryPrice, tp1Price, tp1Quantity, direction, config, constraints);
-  const tp2Costs = calculateTradeCosts(entryPrice, tp2Price, tp2Quantity, direction, config, constraints);
-  const slCosts = calculateTradeCosts(entryPrice, stopLoss, quantity, direction, config, constraints);
+  const tp1Costs = calculateTradeCosts(entryPrice, tp1Price, tp1Quantity, direction, config, constraints, 'TP');
+  const tp2Costs = calculateTradeCosts(entryPrice, tp2Price, tp2Quantity, direction, config, constraints, 'TP');
+  const slCosts = calculateTradeCosts(entryPrice, stopLoss, quantity, direction, config, constraints, 'SL');
 
   const effectiveRisk = direction === 'LONG'
     ? (slCosts.effectiveEntry - slCosts.effectiveExit)

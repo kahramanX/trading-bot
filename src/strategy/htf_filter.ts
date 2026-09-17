@@ -103,9 +103,9 @@ export function runHTFFilter(htfCandles: Candle[]): HTFFilterResult {
 export function logHTFFilter(symbol: string, result: HTFFilterResult): void {
   const biasEmoji = result.bias === 'BULLISH' ? '🟢' : result.bias === 'BEARISH' ? '🔴' : '⚪';
 
-  logger.info('HTF', `[${symbol}] ${biasEmoji} 4H Trend: ${result.bias}`);
+  logger.info('HTF', `[${symbol}] ${biasEmoji} HTF Trend: ${result.bias}`);
   logger.info('HTF', `[${symbol}]   EMA(200): ${logger.formatUSD(result.emaValue)} | ` +
     `Fiyat: ${logger.formatUSD(result.currentPrice)} | ` +
     `Mesafe: ${result.emaDistance >= 0 ? '+' : ''}${result.emaDistance.toFixed(2)}%`);
-  logger.info('HTF', `[${symbol}]   Yapı: ${result.structureBias} | ${result.reason}`);
+  logger.info('HTF', `[${symbol}]   Yapı: ${result.structureBias} | ${result.reason.replace(/4H/g, 'HTF')}`);
 }

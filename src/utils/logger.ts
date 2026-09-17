@@ -85,7 +85,7 @@ const botFormat = winston.format.printf(({ level, message, timestamp, module: mo
   const moduleStr = mod ? (MODULE_ICONS[mod as string] || mod) : '       ';
   const levelColor = LEVEL_COLORS[level] || COLORS.white;
   const separator = `${COLORS.dim}│${COLORS.reset}`;
-  const coloredMsg = colorizeMessage(message);
+  const coloredMsg = colorizeMessage(String(message));
 
   return `${COLORS.gray}[${time}]${COLORS.reset} ${levelColor}${moduleStr}${COLORS.reset} ${separator} ${coloredMsg}`;
 });

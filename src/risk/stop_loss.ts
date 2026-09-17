@@ -2,7 +2,7 @@
 // stop_loss.ts — Hard Stop-Loss Hesaplama + Break-Even SL
 // ══════════════════════════════════════════════════════════════
 
-import type { Candle, TradeDirection, SwingPoint } from '../utils/types.js';
+import type { Candle, TradeDirection, SwingPoint, BotConfig } from '../utils/types.js';
 import { calculateATR, roundToTickSize } from '../utils/candle_utils.js';
 import { logger } from '../utils/logger.js';
 
@@ -104,12 +104,19 @@ export function calculateBreakEvenStopLoss(
   entryPrice: number,
   direction: TradeDirection,
   tickSize: number,
+  config: BotConfig,
 ): number {
-  let breakEvenSL = direction === 'LONG'
-    ? entryPrice + tickSize
-    : entryPrice - tickSize;
+  const makerFee = config.makerFeePct / 100;
+  const takerFee = config.takerFeePct / 100;
+  let breakEvenSL: number;
+
+  if (direction === 'LONG') {
+    breakEvenSL = entryPrice * (1 + makerFee) / (1 - takerFee);
+  } else {
+    breakEvenSL = entryPrice * (1 - makerFee) / (1 + takerFee);
+  }
 
   breakEvenSL = roundToTickSize(breakEvenSL, tickSize);
-  logger.info('RISK', `🔄 SL → Break-Even: ${logger.formatUSD(breakEvenSL)}`);
+  logger.info('RISK', `🔄 SL → True Break-Even: ${logger.formatUSD(breakEvenSL)}`);
   return breakEvenSL;
 }

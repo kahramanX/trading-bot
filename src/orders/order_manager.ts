@@ -17,6 +17,7 @@ import type {
 import type { TakeProfitLevels } from '../risk/take_profit.js';
 import { calculateBreakEvenStopLoss } from '../risk/stop_loss.js';
 import { calculateNetPnL } from '../risk/cost_calculator.js';
+import { playSound } from '../utils/sound_player.js';
 import { recordTradeResult } from '../risk/circuit_breaker.js';
 import { runHTFFilter } from '../strategy/htf_filter.js';
 import { analyzeMarketStructure } from '../strategy/market_structure.js';
@@ -106,18 +107,26 @@ export async function openTrade(
     };
 
     logger.info('ORDER', `✅ [${symbol}] Entry: ${entryOrder.id} | ${side.toUpperCase()} ${quantity} @ ${logger.formatUSD(entryPrice)}`);
+    playSound('ORDER');
 
     // SL emri — aynı milisaniyede
     const slSide = signal.direction === 'LONG' ? 'sell' : 'buy';
     const slPrice = roundToTickSize(signal.stopLoss, constraints.tickSize);
 
-    const slParams: any = { stopPrice: slPrice, timeInForce: 'GTC' };
+    const slParams: any = { stopPrice: slPrice };
+    let slOrderType = 'STOP_LOSS_LIMIT';
+    let slLimitPrice: number | undefined = slPrice;
+
     if (config.marketType === 'futures') {
+      slOrderType = 'STOP_MARKET';
+      slLimitPrice = undefined; // Futures'ta Stop Market daha güvenlidir, limit fiyata gerek yok
       slParams.reduceOnly = true;
+    } else {
+      slParams.timeInForce = 'GTC'; // Spot için geçerli
     }
 
     const slOrder = await exchange.createOrder(
-      symbol, 'STOP_LOSS_LIMIT', slSide, quantity, slPrice, slParams,
+      symbol, slOrderType, slSide, quantity, slLimitPrice, slParams,
     );
 
     const slManaged: ManagedOrder = {
@@ -254,7 +263,7 @@ export async function applyBreakEvenStopLoss(
   if (remainingQty <= 0) return;
 
   const breakEvenPrice = calculateBreakEvenStopLoss(
-    trade.entryOrder.price, trade.signal.direction, constraints.tickSize,
+    trade.entryOrder.price, trade.signal.direction, constraints.tickSize, config,
   );
 
   if (config.dryRun) {
@@ -269,13 +278,20 @@ export async function applyBreakEvenStopLoss(
       await exchange.cancelOrder(trade.stopLossOrder.id, symbol);
     }
 
-    const beParams: any = { stopPrice: breakEvenPrice, timeInForce: 'GTC' };
+    const beParams: any = { stopPrice: breakEvenPrice };
+    let slOrderType = 'STOP_LOSS_LIMIT';
+    let slLimitPrice: number | undefined = breakEvenPrice;
+
     if (config.marketType === 'futures') {
+      slOrderType = 'STOP_MARKET';
+      slLimitPrice = undefined;
       beParams.reduceOnly = true;
+    } else {
+      beParams.timeInForce = 'GTC';
     }
 
     const newSlOrder = await exchange.createOrder(
-      symbol, 'STOP_LOSS_LIMIT', slSide, remainingQty, breakEvenPrice, beParams,
+      symbol, slOrderType, slSide, remainingQty, slLimitPrice, beParams,
     );
 
     trade.stopLossOrder = {
@@ -548,6 +564,7 @@ export async function manageActiveTrade(
     // 3.2 Kural: TP1 Gerçekleştiğinde SL Break-Even'a çekilmelidir
     if ((trade.tp1Order?.status === 'FILLED' || trade.tp1Hit) && !trade.breakEvenApplied) {
       logger.info('ORDER', `[${symbol}] 🎯 TP1 dolumu teyit edildi. SL Break-Even seviyesine taşınıyor...`);
+      playSound('PROFIT');
       await applyBreakEvenStopLoss(symbol, config, constraints);
     }
 
@@ -555,6 +572,7 @@ export async function manageActiveTrade(
     if (trade.tp2Order?.status === 'FILLED') {
       logger.separator();
       logger.info('ORDER', `[${symbol}] 🏆 TP2 DOLDU! Tüm pozisyon hedefine ulaştı.`);
+      playSound('PROFIT');
 
       // Stop-loss emrini iptal et
       if (!config.dryRun && trade.stopLossOrder?.status === 'OPEN') {
@@ -622,6 +640,12 @@ export async function manageActiveTrade(
       }
 
       const isWin = totalNetPnL > 0;
+      if (isWin) {
+        playSound('PROFIT');
+      } else {
+        playSound('LOSS');
+      }
+
       recordTradeResult(cbState, {
         timestamp: Date.now(),
         symbol,

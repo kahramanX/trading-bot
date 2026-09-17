@@ -40,25 +40,20 @@ export function calculatePositionSize(
       `${direction} için SL, giriş fiyatının ${direction === 'LONG' ? 'altında' : 'üstünde'} olmalı.`);
   }
 
-  // İlk tahminde kaba quantity hesapla, maliyeti düşür
-  const roughQuantity = riskAmount / stopDistance;
-  const roughCosts = calculateTradeCosts(
-    entryPrice, stopLoss, roughQuantity, direction, config, constraints,
-  );
+  // Gerçek (Kesin) quantity hesabı — cebirsel yaklaşım
+  const makerFee = config.makerFeePct / 100;
+  const takerFee = config.takerFeePct / 100;
+  const slippagePerUnit = constraints.tickSize * config.slippageTicks;
 
-  const netRisk = riskAmount - roughCosts.totalCost;
+  // Birim başına maliyet (Komisyon + Kayma)
+  const costPerUnit = (entryPrice * makerFee) + (stopLoss * takerFee) + slippagePerUnit;
+  const totalLossPerUnit = stopDistance + costPerUnit;
 
-  if (netRisk <= 0) {
-    return rejectPosition(riskAmount, roughCosts.totalCost, stopDistance,
-      `[${constraints.symbol}] Maliyetler (${logger.formatUSD(roughCosts.totalCost)}) risk miktarını (${logger.formatUSD(riskAmount)}) aşıyor.`);
-  }
-
-  // Gerçek quantity — coin'in stepSize'ına göre yuvarlanır
-  let quantity = netRisk / stopDistance;
+  let quantity = riskAmount / totalLossPerUnit;
   quantity = floorToStepSize(quantity, constraints.stepSize);
 
   if (quantity < constraints.minQty) {
-    return rejectPosition(riskAmount, roughCosts.totalCost, stopDistance,
+    return rejectPosition(riskAmount, 0, stopDistance,
       `[${constraints.symbol}] Hesaplanan miktar (${quantity}) minimum lot büyüklüğünün (${constraints.minQty}) altında.`);
   }
 
@@ -72,14 +67,14 @@ export function calculatePositionSize(
     const reason = positionValue < 5
       ? `[${constraints.symbol}] İşlem reddedildi ($5 kuralı): Pozisyon değeri ${logger.formatUSD(positionValue)} < $5 minimum.`
       : `[${constraints.symbol}] İşlem reddedildi (MIN_NOTIONAL): Pozisyon değeri ${logger.formatUSD(positionValue)} < ${logger.formatUSD(constraints.minNotional)} minimum.`;
-    return rejectPosition(riskAmount, roughCosts.totalCost, stopDistance, reason);
+    return rejectPosition(riskAmount, costPerUnit * quantity, stopDistance, reason);
   }
 
   // Futures için Marjin (Kasa) Yeterliliği Kontrolü
   const leverage = config.marketType === 'futures' ? config.leverage : 1;
   const marginRequired = positionValue / leverage;
   if (marginRequired > balance) {
-    return rejectPosition(riskAmount, roughCosts.totalCost, stopDistance,
+    return rejectPosition(riskAmount, costPerUnit * quantity, stopDistance,
       `[${constraints.symbol}] İşlem reddedildi (Yetersiz Bakiye): Gerekli marjin ${logger.formatUSD(marginRequired)} > Kasa ${logger.formatUSD(balance)}. (Kaldıraç: ${leverage}x)`);
   }
 

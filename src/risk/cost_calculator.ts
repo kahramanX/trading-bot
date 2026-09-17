@@ -26,6 +26,7 @@ export function calculateTradeCosts(
   direction: TradeDirection,
   config: BotConfig,
   constraints: SymbolConstraints,
+  exitType: 'SL' | 'TP' = 'SL',
 ): TradeCosts {
   // ─── Pozisyon Değerleri ───────────────────────────────────
   const entryValue = entryPrice * quantity;
@@ -36,13 +37,14 @@ export function calculateTradeCosts(
   const entryCommission = entryValue * (config.makerFeePct / 100);
 
   // Çıkış: SL = Market emir (Taker), TP = Limit emir (Maker)
-  // En kötü senaryo (SL) hesaplanır — güvenli taraf
-  const exitCommission = exitValue * (config.takerFeePct / 100);
+  const exitCommission = exitType === 'SL'
+    ? exitValue * (config.takerFeePct / 100)
+    : exitValue * (config.makerFeePct / 100);
 
   // ─── Slippage (Fiyat Kayması) Hesaplama ───────────────────
   // Slippage sadece market emirlerde (SL tetiklendiğinde) oluşur
-  // Limit emirlerde (giriş) slippage yok — fiyat bizim belirlediğimiz seviyede
-  const slippagePerUnit = constraints.tickSize * config.slippageTicks;
+  // Limit emirlerde (giriş ve TP) slippage yok
+  const slippagePerUnit = exitType === 'SL' ? (constraints.tickSize * config.slippageTicks) : 0;
   const slippageCost = slippagePerUnit * quantity;
 
   // ─── Toplam Maliyet ──────────────────────────────────────
@@ -100,8 +102,9 @@ export function calculateNetPnL(
   direction: TradeDirection,
   config: BotConfig,
   constraints: SymbolConstraints,
+  exitType: 'SL' | 'TP' = 'SL',
 ): number {
-  const costs = calculateTradeCosts(entryPrice, exitPrice, quantity, direction, config, constraints);
+  const costs = calculateTradeCosts(entryPrice, exitPrice, quantity, direction, config, constraints, exitType);
 
   let grossPnL: number;
   if (direction === 'LONG') {
