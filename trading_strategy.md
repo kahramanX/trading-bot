@@ -33,6 +33,11 @@ Breaker Blocks: The system locates failed order blocks that led to the recent li
 
 The engine requires confluence. It calculates an overlap confidence score between the FVG and the Breaker Block. Limit orders are placed only when these zones intersect, ensuring high-probability entries at optimal discounted pricing.
 
+### Institutional Filters (Killzones & Volatility)
+To maximize the probability of success, the system employs strict filters before executing any confirmed entry:
+1. **Killzones (Session Filtering):** The bot strictly operates during high-volume institutional windows (London and New York sessions). It completely avoids the low-volume, choppy Asian session. Any pending limit orders that are not filled by the end of a session are automatically canceled.
+2. **Volatility Gating (ADX):** A directional bias and structural shift mean nothing without momentum. The algorithm checks the Average Directional Index (ADX) to gauge market volatility. If the market is too quiet (low ADX), the entry is suppressed, protecting the capital from false breakouts (fakeouts).
+
 ### Algorithmic Risk Management
 Position sizing is strictly dynamic. The system calculates the lot size based on a fixed risk percentage of the total free balance, precisely factoring in the distance to the structural Stop Loss and the estimated exchange execution costs. It automatically rounds down to meet the asset's step size constraints.
 
@@ -42,6 +47,9 @@ A dedicated Circuit Breaker acts as a systemic risk shield. It tracks daily real
 The exit logic utilizes a dual Take Profit (TP) model based on Risk:Reward ratios. TP1 is positioned at 1:2 R:R (closing 50% volume), and TP2 is set at 1:3 R:R. The exact moment TP1 is hit, the engine modifies the remaining Stop Loss to absolute break-even.
 
 To prevent hanging ghost orders caused by API conditional order discrepancies, the system employs True Position Sync. Before evaluating any active trade state, it queries the exchange for the actual live position size. If the position is zero, the engine instantly assumes external closure (via SL, liquidation, or manual intervention) and forcefully sweeps all lingering limit and trigger orders.
+
+### High-Fidelity Backtesting Engine
+The strategy's robustness is continuously validated through a custom, built-in backtesting engine (`/backtest`). Unlike basic testers, it uses highly granular 1-minute CSV data from Binance, synthesizing it into HTF and LTF representations. It simulates real-world conditions like exact exchange fees, pessimistic execution (worst-case fills), and strict TTLs (Time-To-Live) on orders, producing comprehensive yearly, monthly, and weekly PnL reports.
 
 ## Bölüm A: Normal İnsanlar İçin (Basit Anlatım)
 
@@ -76,6 +84,11 @@ Breaker Block: Son likidite temizliğine yol açan kırılmış emir blokların�
 
 Motor bir kesişim (confluence) arar. FVG ve Breaker Block arasında bir örtüşme güven skoru hesaplar. Limit emirler sadece bu bölgeler kesiştiğinde yerleştirilir, böylece optimal indirimli fiyatlardan yüksek olasılıklı girişler sağlanır.
 
+### Kurumsal Filtreler (Killzone ve Volatilite)
+Başarı olasılığını en üst düzeye çıkarmak için, sistem onaylanmış bir girişi işleme almadan önce katı filtreler uygular:
+1. **Killzones (Seans Filtreleme):** Bot kesinlikle yüksek hacimli kurumsal pencerelerde (Londra ve New York seansları) çalışır. Düşük hacimli, dalgalı (choppy) Asya seansından tamamen kaçınır. Seans sonuna kadar dolmayan (fill edilmeyen) tüm bekleyen limit emirler otomatik olarak iptal edilir.
+2. **Volatilite Gating (ADX):** Yön tahmini (bias) ve yapısal kırılım (MSS), momentum olmadan hiçbir şey ifade etmez. Algoritma, piyasa volatilitesini ölçmek için ADX (Average Directional Index) indikatörünü kontrol eder. Piyasa çok durgunsa (düşük ADX), giriş işlemi iptal edilir ve sermaye sahte kırılımlardan (fakeouts) korunur.
+
 ### Algoritmik Risk Yönetimi
 Pozisyon büyüklüğü tamamen dinamiktir. Sistem, toplam serbest bakiyenin sabit bir risk yüzdesini baz alarak, yapısal Stop Loss mesafesini ve tahmini borsa komisyon maliyetlerini hesaba katarak lot miktarını hesaplar. Varlığın adım boyutu (step size) kısıtlamalarına uymak için otomatik olarak aşağı yuvarlama yapar.
 
@@ -85,3 +98,6 @@ Pozisyon büyüklüğü tamamen dinamiktir. Sistem, toplam serbest bakiyenin sab
 Çıkış mantığı, Risk:Ödül (R:R) oranlarına dayalı ikili bir Take Profit (TP) modeli kullanır. TP1 1:2 R:R seviyesinde (hacmin %50'sini kapatarak) konumlandırılır, TP2 ise 1:3 R:R seviyesine ayarlanır. TP1'e ulaşıldığı an, motor kalan pozisyonun Stop Loss noktasını anında sıfır risk (break-even) seviyesine taşır.
 
 Borsa API'lerindeki koşullu emir uyumsuzluklarından kaynaklanan hayalet emirleri (ghost orders) engellemek için sistem Gerçek Pozisyon Senkronizasyonu kullanır. Aktif bir işlemin durumunu değerlendirmeden önce borsaya bağlanıp anlık gerçek pozisyon büyüklüğünü sorgular. Eğer pozisyon sıfırsa, motor işlemin dışarıdan (SL, likidasyon veya manuel müdahale ile) kapatıldığını anında anlar ve askıda kalan tüm limit ve tetikleyici emirleri zorla temizler.
+
+### Yüksek Hassasiyetli Backtest Motoru (High-Fidelity Backtesting)
+Stratejinin sağlamlığı, özel olarak geliştirilmiş yerleşik bir backtest motoru (`/backtest`) aracılığıyla sürekli olarak doğrulanır. Basit test araçlarının aksine, Binance'den alınan son derece detaylı 1 dakikalık CSV verilerini kullanır ve bunları HTF/LTF mumlarına sentezler. Kesin borsa komisyonları, kötümser dolum (pessimistic execution - en kötü senaryoda gerçekleşme) ve emirlere uygulanan katı zaman aşımları (TTL) gibi gerçek dünya koşullarını simüle ederek kapsamlı yıllık, aylık ve haftalık PnL raporları üretir.

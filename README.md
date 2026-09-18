@@ -48,6 +48,10 @@ Sistem, kırılım (MSS) gerçekleştikten sonra iki ana bölgeyi hedefler:
 2. **Breaker Block:** Kırılan eski destek/direnç blokları.
 *Botun asıl gücü (Confluence), bu iki bölgenin örtüştüğü (FVG + Breaker Block) noktaları tespit etmesidir. Sadece yüksek güven skoruna sahip setup'larda limit emir ile pusu atılır.*
 
+### Kurumsal Filtreler (Institutional Filters)
+- **Killzones (İşlem Saatleri):** Bot, hacmin ve kurumsal paranın en yüksek olduğu Londra ve New York seanslarında (Killzones) aktiftir. Hacimsiz Asya seansındaki sahte hareketlerden (chop/fakeout) kaçınır. İşlem saatleri dışında yeni pozisyon aramaz ve bekleyen pusuları (limit emirleri) otomatik iptal eder.
+- **ADX (Volatilite Gating):** Sadece yön bulmak (bias) yetmez, o yöndeki hareketin gücü de önemlidir. Bot, ADX (Average Directional Index) ile piyasanın momentumunu ölçer. Yeterli volatilite yoksa, mükemmel bir setup (MSS + FVG) olsa bile o masaya oturmaz.
+
 ### Emir ve Pozisyon Yönetimi
 - **R:R (Risk/Reward):** Minimum R:R oranı şartı vardır. Hedefler Kademeli TP şeklindedir (TP1 %50 @ 1:2 R:R, TP2 %50 @ 1:3 R:R).
 - **Break-Even (BE):** Fiyat TP1'e ulaştığında, kalan %50'lik pozisyonun Stop-Loss emri anında Entry (Giriş) fiyatına çekilir (Komisyonlar hesaba katılarak).
@@ -67,6 +71,7 @@ Node.js ve TypeScript ile tamamen modüler, test edilebilir ve asenkron mimaride
 - **Position Sizer (`/src/risk/position_sizer.ts`):** Statik lot ataması yerine dinamik lot hesaplanır. `(Bakiye * %Risk - Maliyetler) / SL Mesafesi` formülü kullanılır. CCXT üzerinden `stepSize`, `tickSize` ve `minNotional` ($5 kuralı) filtreleri çekilip yuvarlamalar borsanın kabul edeceği kesin formata (precision) dönüştürülür.
 - **Circuit Breaker (`/src/risk/circuit_breaker.ts`):** Durum makinesi (State Machine) mantığıyla çalışır. Verileri diske yazar (`circuit_breaker_state.json`), süreç Node.js crash olsa veya sunucu yeniden başlasa bile state kaybolmaz.
 - **Order Manager (`/src/orders/order_manager.ts`):** Emirlerin takibi, dolum (fill) bildirimleri ve iptal süreçleri asenkron olarak yönetilir. WebSocket yerine REST API polling ile sağlam, kesintilere dayanıklı bir altyapı hedeflenmiştir.
+- **Backtest Motoru (`/backtest`):** Stratejiyi izole bir şekilde test etmek için tasarlanmış yüksek hassasiyetli (High-Fidelity) yerleşik backtest altyapısıdır. Gerçekçi fiyat kaymaları, komisyonlar ve kötümser dolum (pessimistic execution) mantığı kullanır. Binance'in 1 dakikalık ham CSV verilerini indirip bunlardan kurgulanan HTF (ör. 4s) ve LTF (ör. 15dk) mumlarını sentezleyerek detaylı (yıllık, aylık, haftalık) PnL raporları (`summary.md`) ve işlem dökümleri (`trades.json`) üretir.
 
 ### Test Altyapısı (`/__tests__`)
 Proje, Vitest tabanlı güçlü bir birim test (Unit Test) kalkanına sahiptir.
@@ -130,6 +135,13 @@ npm run dry-run
 Cüzdan bakiyenizi (Spot/Futures ayrı ayrı) ve borsadaki açık/bekleyen limit emirlerinizi hızlıca listeler:
 ```bash
 npx tsx check_status.ts
+```
+
+### Backtest Çalıştırma
+CSV verilerini indirip (1m), yüksek hassasiyetli simülasyon motorunda stratejinizi test etmek için:
+```bash
+npm run backtest:load    # Data hazırlığı ve sentez
+npm run backtest:run     # Simülasyonu başlatır ve rapor üretir
 ```
 
 ### Testleri Çalıştırma
