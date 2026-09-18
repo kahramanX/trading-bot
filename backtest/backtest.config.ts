@@ -93,7 +93,7 @@ export const backtestConfig: BacktestConfig = {
 
   // ─── R:R — SMC optimized ────────────────────────────
   tp1RR: 1.5,             // Quick liquidity grab / derisk
-  tp2RR: 3,               // Runner
+  tp2RR: 2.5,               // Runner
   minRRRatio: 1.5,        // Accept high probability trades
 
   // ─── Risk limits — match .env ────────────────────────────
@@ -102,8 +102,8 @@ export const backtestConfig: BacktestConfig = {
   circuitBreakerCooldownHours: 4,
 
   // ─── Timeframes — match .env (HTF_TIMEFRAME=1h, LTF_TIMEFRAME=5m) ───
-  htfTimeframe: '4h',
-  ltfTimeframe: '15m',
+  htfTimeframe: '1h',
+  ltfTimeframe: '5m',
 };
 
 // ─── Synthetic BotConfig Builder ────────────────────────────

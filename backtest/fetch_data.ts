@@ -14,7 +14,7 @@ import type { Candle } from '../src/utils/types.js';
 // ─── Constants ──────────────────────────────────────────────
 
 const BATCH_SIZE = 1000;            // CCXT max candles per request
-const RATE_LIMIT_MS = 200;          // Delay between API calls
+const RATE_LIMIT_MS = 500;          // Delay between API calls (Artırıldı - IP Ban yememek için)
 const DATA_DIR = path.resolve(process.cwd(), 'backtest/data');
 
 // ─── Helpers ────────────────────────────────────────────────
@@ -60,7 +60,37 @@ async function fetchAllCandles(
     page++;
     process.stdout.write(`  📡 [${symbol}] ${timeframe} page ${page} — from ${formatDate(cursor)}...`);
 
-    const rawOhlcv = await exchange.fetchOHLCV(symbol, timeframe, cursor, BATCH_SIZE);
+    let rawOhlcv: any[] = [];
+    let retries = 0;
+    while (retries < 5) {
+      try {
+        rawOhlcv = await exchange.fetchOHLCV(symbol, timeframe, cursor, BATCH_SIZE);
+        break; // success
+      } catch (e: any) {
+        retries++;
+        const msg = e.message || String(e);
+        console.log(`\n    ⚠️  Error fetching data (attempt ${retries}/5): ${msg}`);
+        if (retries >= 5) {
+          throw new Error(`Failed to fetch data after 5 retries: ${msg}`);
+        }
+        
+        // Extract ban time if it's a 418 I'm a Teapot
+        let waitMs = 5000 * Math.pow(2, retries - 1); // 5s, 10s, 20s...
+        const bannedUntilMatch = msg.match(/banned until (\d+)/);
+        if (bannedUntilMatch) {
+          const banEnd = parseInt(bannedUntilMatch[1], 10);
+          const nowMs = Date.now();
+          if (banEnd > nowMs) {
+            waitMs = (banEnd - nowMs) + 1000;
+            console.log(`    🚨 IP Banned! Waiting until ${new Date(banEnd).toLocaleTimeString()} (${Math.ceil(waitMs/1000)}s)...`);
+          }
+        }
+        
+        console.log(`    ⏳ Retrying in ${Math.ceil(waitMs/1000)} seconds...`);
+        await sleep(waitMs);
+        process.stdout.write(`  📡 [${symbol}] ${timeframe} page ${page} (Retry) — from ${formatDate(cursor)}...`);
+      }
+    }
 
     if (rawOhlcv.length === 0) {
       console.log(' ⚠️ No more data.');
