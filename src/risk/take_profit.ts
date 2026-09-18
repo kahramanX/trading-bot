@@ -85,9 +85,9 @@ export function calculateTakeProfitLevels(
     };
   }
 
-  logger.info('RISK', `[${constraints.symbol}] TP1: ${logger.formatUSD(tp1Price)} (R:R ${riskRewardTP1.toFixed(2)}) — %50 (${tp1Quantity})`);
-  logger.info('RISK', `[${constraints.symbol}] TP2: ${logger.formatUSD(tp2Price)} (R:R ${riskRewardTP2.toFixed(2)}) — %50 (${tp2Quantity})`);
-  logger.info('RISK', `[${constraints.symbol}] Ağırlıklı R:R: ${weightedRR.toFixed(2)} ✅ | TP1 hit → SL Break-Even`);
+  logger.info('RISK', `[${constraints.symbol}] TP1: ${logger.formatUSD(tp1Price)} (R:R ${riskRewardTP1.toFixed(2)}) — 50% (${tp1Quantity})`);
+  logger.info('RISK', `[${constraints.symbol}] TP2: ${logger.formatUSD(tp2Price)} (R:R ${riskRewardTP2.toFixed(2)}) — 50% (${tp2Quantity})`);
+  logger.info('RISK', `[${constraints.symbol}] Weighted R:R: ${weightedRR.toFixed(2)} ✅ | TP1 hit → SL Break-Even`);
 
   return {
     tp1Price, tp2Price, tp1Quantity, tp2Quantity,

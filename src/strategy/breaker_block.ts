@@ -203,14 +203,14 @@ export function logBreakerBlockStatus(symbol: string, candles: Candle[]): void {
   const bearish = getActiveBreakerBlocks(candles, 'BEARISH');
 
   if (bullish.length > 0) {
-    logger.info('BRK', `[${symbol}] ${bullish.length} aktif Bullish Breaker:`);
+    logger.info('BRK', `[${symbol}] ${bullish.length} active Bullish Breakers:`);
     for (const b of bullish.slice(0, 3)) {
       logger.info('BRK', `  🧱 ${logger.formatUSD(b.low)} — ${logger.formatUSD(b.high)}`);
     }
   }
 
   if (bearish.length > 0) {
-    logger.info('BRK', `[${symbol}] ${bearish.length} aktif Bearish Breaker:`);
+    logger.info('BRK', `[${symbol}] ${bearish.length} active Bearish Breakers:`);
     for (const b of bearish.slice(0, 3)) {
       logger.info('BRK', `  🧱 ${logger.formatUSD(b.low)} — ${logger.formatUSD(b.high)}`);
     }

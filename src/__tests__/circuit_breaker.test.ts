@@ -87,7 +87,7 @@ describe('circuit_breaker', () => {
     expect(state.consecutiveLosses).toBe(3);
     expect(state.isTripped).toBe(true);
     expect(isCircuitBreakerTripped(state)).toBe(true);
-    expect(state.tripReason).toContain('3 ardışık stop-loss');
+    expect(state.tripReason).toContain('consecutive stop-losses');
   });
 
   it('resets consecutive losses on winning trade', () => {
@@ -144,7 +144,7 @@ describe('circuit_breaker', () => {
     state = recordTradeResult(state, bigLossResult, mockConfig);
     expect(state.isTripped).toBe(true);
     expect(isCircuitBreakerTripped(state)).toBe(true);
-    expect(state.tripReason).toContain('Günlük kayıp');
+    expect(state.tripReason).toContain('Daily loss');
   });
 
   it('persists and recovers state across restarts', () => {

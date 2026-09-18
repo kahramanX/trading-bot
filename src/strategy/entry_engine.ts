@@ -43,7 +43,7 @@ export function runEntryEngine(
     signal: null, reason, step,
   });
 
-  logger.info('ENGINE', `━━━ [${symbol}] Strateji Analizi Başlıyor ━━━`);
+  logger.info('ENGINE', `━━━ [${symbol}] Starting Strategy Analysis ━━━`);
 
   // ─── Adım 1: HTF Filtre ──────────────────────────────────
   const htfResult = runHTFFilter(htfCandles, config.htfTimeframe);
@@ -82,7 +82,7 @@ export function runEntryEngine(
     return noSignal(`[${symbol}] MSS henüz onaylanmadı (close ile kırılma bekleniyor).`, 'MSS_CONFIRM');
   }
 
-  logger.info('ENGINE', `[${symbol}] ✅ MSS onaylandı: ${ltfStructure.lastMSS.type} @ ${logger.formatUSD(ltfStructure.lastMSS.price)}`);
+  logger.info('ENGINE', `[${symbol}] ✅ MSS confirmed: ${ltfStructure.lastMSS.type} @ ${logger.formatUSD(ltfStructure.lastMSS.price)}`);
 
   // ─── Adım 3: FVG & Breaker Block Tespiti ─────────────────
   logFVGStatus(symbol, ltfCandles);
@@ -109,7 +109,7 @@ export function runEntryEngine(
       triggerType = 'FVG';
       zoneEdge = direction === 'LONG' ? targetFVG.low : targetFVG.high;
       confidence = 0.85;  // Yüksek güven — iki bölge örtüşüyor
-      logger.info('ENGINE', `[${symbol}] 🎯 CONFLUENCE! FVG + Breaker örtüşüyor. Güven: ${(confidence * 100).toFixed(0)}%`);
+      logger.info('ENGINE', `[${symbol}] 🎯 CONFLUENCE! FVG + Breaker overlap. Confidence: ${(confidence * 100).toFixed(0)}%`);
     }
   }
 
@@ -120,7 +120,7 @@ export function runEntryEngine(
       triggerType = 'FVG';
       zoneEdge = direction === 'LONG' ? targetFVG.low : targetFVG.high;
       confidence = 0.65;
-      logger.info('ENGINE', `[${symbol}] 📐 Fiyat FVG bölgesinde: ${logger.formatUSD(targetFVG.low)} — ${logger.formatUSD(targetFVG.high)}`);
+      logger.info('ENGINE', `[${symbol}] 📐 Price is in FVG zone: ${logger.formatUSD(targetFVG.low)} — ${logger.formatUSD(targetFVG.high)}`);
     } else {
       // L-01 FIX: Fiyat FVG'ye gelmedi — proximity (yakınlık) kontrolü yap
       const atr = calculateATR(ltfCandles) ?? 0;
@@ -138,7 +138,7 @@ export function runEntryEngine(
       triggerType = 'FVG';
       zoneEdge = direction === 'LONG' ? targetFVG.low : targetFVG.high;
       confidence = 0.55;
-      logger.info('ENGINE', `[${symbol}] 📐 FVG pusu: ${logger.formatUSD(targetFVG.midpoint)} (fiyat henüz gelmedi)`);
+      logger.info('ENGINE', `[${symbol}] 📐 FVG ambush: ${logger.formatUSD(targetFVG.midpoint)} (price hasn't reached yet)`);
     }
   }
 
@@ -149,7 +149,7 @@ export function runEntryEngine(
       triggerType = 'BREAKER_BLOCK';
       zoneEdge = direction === 'LONG' ? targetBreaker.low : targetBreaker.high;
       confidence = 0.6;
-      logger.info('ENGINE', `[${symbol}] 🧱 Fiyat Breaker bölgesinde: ${logger.formatUSD(targetBreaker.low)} — ${logger.formatUSD(targetBreaker.high)}`);
+      logger.info('ENGINE', `[${symbol}] 🧱 Price is in Breaker zone: ${logger.formatUSD(targetBreaker.low)} — ${logger.formatUSD(targetBreaker.high)}`);
     }
   }
 
@@ -178,7 +178,7 @@ export function runEntryEngine(
   // Kaba R:R kontrolü (efektif hesap position_sizer/take_profit'te yapılacak)
   const avgRR = (config.tp1RR * 0.5 + config.tp2RR * 0.5);
   if (avgRR < config.minRRRatio) {
-    logger.warn('ENGINE', `[${symbol}] Sinyal reddedildi: Beklenen RR ${config.minRRRatio}, Bulunan RR ${avgRR.toFixed(2)}`);
+    logger.warn('ENGINE', `[${symbol}] Signal rejected: Expected RR ${config.minRRRatio}, Found RR ${avgRR.toFixed(2)}`);
     return noSignal(`[${symbol}] Sinyal reddedildi: Beklenen RR ${config.minRRRatio}, Bulunan RR ${avgRR.toFixed(2)}`, 'RR_CHECK');
   }
 
@@ -197,11 +197,11 @@ export function runEntryEngine(
   };
 
   logger.separator();
-  logger.info('ENGINE', `[${symbol}] 🚀 SİNYAL OLUŞTU!`);
+  logger.info('ENGINE', `[${symbol}] 🚀 SIGNAL GENERATED!`);
   playSound('SIGNAL');
-  logger.info('ENGINE', `  Yön: ${direction} | Tetik: ${triggerType} | Güven: ${(confidence * 100).toFixed(0)}%`);
-  logger.info('ENGINE', `  Giriş: ${logger.formatUSD(entryPrice)} | SL: ${logger.formatUSD(stopLoss)} | TP1: ${logger.formatUSD(tp1)} | TP2: ${logger.formatUSD(tp2)}`);
-  logger.info('ENGINE', `  Sebep: ${signal.reason}`);
+  logger.info('ENGINE', `  Direction: ${direction} | Trigger: ${triggerType} | Confidence: ${(confidence * 100).toFixed(0)}%`);
+  logger.info('ENGINE', `  Entry: ${logger.formatUSD(entryPrice)} | SL: ${logger.formatUSD(stopLoss)} | TP1: ${logger.formatUSD(tp1)} | TP2: ${logger.formatUSD(tp2)}`);
+  logger.info('ENGINE', `  Reason: ${signal.reason}`);
   logger.separator();
 
   return { signal, reason: signal.reason, step: 'SIGNAL_GENERATED' };

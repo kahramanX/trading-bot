@@ -76,24 +76,24 @@ export function calculateTradeCosts(
 }
 
 /**
- * Maliyet detaylarını terminale loglar.
+ * Logs cost details to the terminal.
  */
 export function logCostBreakdown(costs: TradeCosts, entryPrice: number, exitPrice: number): void {
-  logger.info('RISK', `Maliyet Analizi:`);
-  logger.info('RISK', `  Giriş Komisyon: ${logger.formatUSD(costs.entryCommission)} (Maker)`);
-  logger.info('RISK', `  Çıkış Komisyon: ${logger.formatUSD(costs.exitCommission)} (Taker/SL senaryosu)`);
-  logger.info('RISK', `  Slippage:       ${logger.formatUSD(costs.slippageCost)}`);
-  logger.info('RISK', `  Toplam Maliyet: ${logger.formatUSD(costs.totalCost)}`);
+  logger.info('RISK', `Cost Analysis:`);
+  logger.info('RISK', `  Entry Commission: ${logger.formatUSD(costs.entryCommission)} (Maker)`);
+  logger.info('RISK', `  Exit Commission:  ${logger.formatUSD(costs.exitCommission)} (Taker/SL scenario)`);
+  logger.info('RISK', `  Slippage:         ${logger.formatUSD(costs.slippageCost)}`);
+  logger.info('RISK', `  Total Cost:       ${logger.formatUSD(costs.totalCost)}`);
   logger.separator();
-  logger.info('RISK', `  Ham Giriş:      ${logger.formatUSD(entryPrice)} → Efektif: ${logger.formatUSD(costs.effectiveEntry)}`);
-  logger.info('RISK', `  Ham Çıkış:      ${logger.formatUSD(exitPrice)} → Efektif: ${logger.formatUSD(costs.effectiveExit)}`);
+  logger.info('RISK', `  Raw Entry:        ${logger.formatUSD(entryPrice)} → Effective: ${logger.formatUSD(costs.effectiveEntry)}`);
+  logger.info('RISK', `  Raw Exit:         ${logger.formatUSD(exitPrice)} → Effective: ${logger.formatUSD(costs.effectiveExit)}`);
 }
 
 /**
- * Bir işlemin maliyet sonrası net kâr/zararını hesaplar.
- * R:R'ın gerçekçi olup olmadığını doğrulamak için kullanılır.
+ * Calculates net profit/loss after costs for a trade.
+ * Used to verify if R:R is realistic.
  *
- * @returns Net P&L ($) — pozitif kâr, negatif zarar
+ * @returns Net P&L ($) — positive profit, negative loss
  */
 export function calculateNetPnL(
   entryPrice: number,

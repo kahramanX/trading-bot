@@ -126,11 +126,11 @@ function logPositionSize(
   stopLoss: number,
   symbol: string,
 ): void {
-  logger.info('RISK', `[${symbol}] Kasa: ${logger.formatUSD(balance)} | ` +
+  logger.info('RISK', `[${symbol}] Balance: ${logger.formatUSD(balance)} | ` +
     `${logger.formatPct(result.riskPercent)} Risk = ${logger.formatUSD(result.riskAmount)} | ` +
-    `Maliyet: ${logger.formatUSD(result.totalCosts.totalCost)} | ` +
+    `Cost: ${logger.formatUSD(result.totalCosts.totalCost)} | ` +
     `Net Risk: ${logger.formatUSD(result.riskAmount - result.totalCosts.totalCost)}`);
 
-  logger.info('SIZE', `[${symbol}] SL Mesafesi: ${logger.formatUSD(result.stopDistance)} | ` +
-    `Miktar: ${result.quantity} | Pozisyon: ${logger.formatUSD(result.positionValue)}`);
+  logger.info('SIZE', `[${symbol}] SL Distance: ${logger.formatUSD(result.stopDistance)} | ` +
+    `Quantity: ${result.quantity} | Position: ${logger.formatUSD(result.positionValue)}`);
 }

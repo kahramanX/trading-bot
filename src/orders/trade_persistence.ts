@@ -40,7 +40,7 @@ export function saveActiveTrades(trades: Map<string, ActiveTrade>): void {
     fs.renameSync(tmpPath, filePath);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error('ORDER', `Aktif işlem durumu diske yazılamadı: ${msg}`);
+    logger.error('ORDER', `Failed to write active trade state to disk: ${msg}`);
   }
 }
 
@@ -62,7 +62,7 @@ export function loadActiveTrades(): Map<string, ActiveTrade> {
       JSON.parse(raw); // Parse test
     }
   } catch {
-    logger.warn('ORDER', 'Aktif işlem dosyası bozuk. Yedek (.bak) dosyasına geçiliyor...');
+    logger.warn('ORDER', 'Active trade file is corrupted. Switching to backup (.bak) file...');
     try {
       if (fs.existsSync(bakPath)) {
         raw = fs.readFileSync(bakPath, 'utf-8');
@@ -79,17 +79,17 @@ export function loadActiveTrades(): Map<string, ActiveTrade> {
       const map = new Map<string, ActiveTrade>(Object.entries(data));
 
       if (loadedFromBak) {
-        logger.info('ORDER', 'Aktif işlemler yedek dosyadan kurtarıldı.');
+        logger.info('ORDER', 'Active trades successfully recovered from backup file.');
       }
 
       if (map.size > 0) {
-        logger.info('ORDER', `📂 Diskten ${map.size} aktif işlem yüklendi: ${[...map.keys()].join(', ')}`);
+        logger.info('ORDER', `📂 Loaded ${map.size} active trades from disk: ${[...map.keys()].join(', ')}`);
       }
 
       return map;
     }
   } catch {
-    logger.warn('ORDER', 'Aktif işlem durumu dosyaları kurtarılamaz. Boş başlatılıyor.');
+    logger.warn('ORDER', 'Active trade state files are unrecoverable. Starting empty.');
   }
 
   return new Map();

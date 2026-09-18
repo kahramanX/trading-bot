@@ -74,17 +74,17 @@ export async function openTrade(
   const symbol = signal.symbol;
 
   if (activeTrades.has(symbol)) {
-    logger.warn('ORDER', `[${symbol}] Zaten aktif işlem var. Yeni işlem reddedildi.`);
+    logger.warn('ORDER', `[${symbol}] Active trade already exists. New trade rejected.`);
     return;
   }
 
   if (!posSize.isValid) {
-    logger.warn('ORDER', `[${symbol}] Pozisyon geçersiz: ${posSize.rejectReason}`);
+    logger.warn('ORDER', `[${symbol}] Invalid position: ${posSize.rejectReason}`);
     return;
   }
 
   if (!tpLevels.isValid) {
-    logger.warn('ORDER', `[${symbol}] TP geçersiz: ${tpLevels.rejectReason}`);
+    logger.warn('ORDER', `[${symbol}] Invalid TP: ${tpLevels.rejectReason}`);
     return;
   }
 
@@ -96,10 +96,10 @@ export async function openTrade(
   // ─── DRY-RUN ─────────────────────────────────────────────
   if (config.dryRun) {
     logger.separator();
-    logger.info('ORDER', `🧪 DRY-RUN [${symbol}]: Emir GÖNDERİLMEDİ`);
+    logger.info('ORDER', `🧪 DRY-RUN [${symbol}]: Order NOT SENT`);
     logger.info('ORDER', `  ${side.toUpperCase()} ${quantity} @ ${logger.formatUSD(entryPrice)}`);
     logger.info('ORDER', `  SL: ${logger.formatUSD(signal.stopLoss)} | TP1: ${logger.formatUSD(tpLevels.tp1Price)} | TP2: ${logger.formatUSD(tpLevels.tp2Price)}`);
-    logger.info('ORDER', `  Tetik: ${signal.triggerType} | ${signal.reason}`);
+    logger.info('ORDER', `  Trigger: ${signal.triggerType} | ${signal.reason}`);
     logger.separator();
 
     persistSet(symbol, createVirtualTrade(signal, quantity, entryPrice, tpLevels));
@@ -109,7 +109,7 @@ export async function openTrade(
   // ─── LIVE ────────────────────────────────────────────────
   try {
     logger.separator();
-    logger.info('ORDER', `📤 [${symbol}] LIMIT ${side.toUpperCase()} gönderiliyor...`);
+    logger.info('ORDER', `📤 [${symbol}] Sending LIMIT ${side.toUpperCase()}...`);
 
     const entryOrder = await exchange.createLimitOrder(symbol, side, quantity, entryPrice);
 
@@ -130,13 +130,17 @@ export async function openTrade(
     logger.info('ORDER', `✅ [${symbol}] Entry: ${entryOrder.id} | ${side.toUpperCase()} ${quantity} @ ${logger.formatUSD(entryPrice)}`);
     playSound('ORDER');
 
-    // SL emri burada baştan gönderilmeyecek! Partial fill / dolum anında manageActiveTrade içinde gönderilecek.
-    logger.info('ORDER', `🛡️ [${symbol}] SL emri dolum (fill) beklentisiyle beklemeye alındı.`);
+    // 5. Save trade
+    persistSet(symbol, {
+      signal, constraints, entryOrder,
+    } as any);
+
+    logger.info('ORDER', `🛡️ [${symbol}] Waiting for SL order fill.`);
 
     persistSet(symbol, {
       symbol,
       entryOrder: entryManaged,
-      stopLossOrder: undefined, // Dolum gelene kadar undefined
+      stopLossOrder: undefined, // Until fill
       signal,
       tp1Hit: false,
       breakEvenApplied: false,
@@ -149,13 +153,13 @@ export async function openTrade(
     logger.separator();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    logger.error('ORDER', `[${symbol}] Emir hatası: ${msg}`);
+    logger.error('ORDER', `[${symbol}] Order error: ${msg}`);
     await cleanupOrders(symbol);
   }
 }
 
 /**
- * TP emirlerini yerleştirir. Kısmi dolum desteği dahil.
+ * Places TP orders. Includes partial fill support.
  */
 export async function placeTPOrders(
   symbol: string,
@@ -170,7 +174,7 @@ export async function placeTPOrders(
   const exchange = getExchange();
   const side = trade.signal.direction === 'LONG' ? 'sell' : 'buy';
 
-  // Kısmi dolum — miktarları oranla
+  // Partial fill — scale quantities
   let tp1Qty: number;
   let tp2Qty: number;
 
@@ -178,14 +182,14 @@ export async function placeTPOrders(
     const ratio = filledQuantity / trade.entryOrder.quantity;
     tp1Qty = floorToStepSize(tpLevels.tp1Quantity * ratio, constraints.stepSize);
     tp2Qty = floorToStepSize(filledQuantity - tp1Qty, constraints.stepSize);
-    logger.warn('FILL', `[${symbol}] Kısmi dolum: ${filledQuantity}/${trade.entryOrder.quantity} (${(ratio * 100).toFixed(1)}%)`);
+    logger.warn('FILL', `[${symbol}] Partial fill: ${filledQuantity}/${trade.entryOrder.quantity} (${(ratio * 100).toFixed(1)}%)`);
   } else {
     tp1Qty = tpLevels.tp1Quantity;
     tp2Qty = tpLevels.tp2Quantity;
   }
 
   if (config.dryRun) {
-    logger.info('ORDER', `🧪 DRY-RUN [${symbol}]: TP emirleri simüle edildi`);
+    logger.info('ORDER', `🧪 DRY-RUN [${symbol}]: TP orders simulated`);
     trade.tp1Order = {
       id: `dry_tp1_${Date.now()}`, clientOrderId: `dry_tp1_${Date.now()}`, symbol,
       type: 'TAKE_PROFIT_1', side, price: tpLevels.tp1Price, quantity: tp1Qty,
@@ -218,15 +222,20 @@ export async function placeTPOrders(
       logger.info('ORDER', `🎯 [${symbol}] TP1: ${tp1Qty} @ ${logger.formatUSD(tp1Price)}`);
     }
 
-    if (tp2Qty > 0 && tp2Qty * tpLevels.tp2Price >= minNotional) {
-      const tp2Price = roundToTickSize(tpLevels.tp2Price, constraints.tickSize);
-      const tp2Order = await exchange.createOrder(symbol, 'limit', side, tp2Qty, tp2Price, tpParams);
+    if (tp2Qty > 0) {
+      const tp2Params: any = { reduceOnly: true };
+      if (config.marketType === 'spot') tp2Params.timeInForce = 'GTC';
+      
+      const tp2Order = await exchange.createOrder(
+        symbol, 'limit', side, tp2Qty, tpLevels.tp2Price, tp2Params,
+      );
+      
       trade.tp2Order = {
         id: tp2Order.id ?? '', clientOrderId: `tp2_${Date.now()}`, symbol,
-        type: 'TAKE_PROFIT_2', side, price: tp2Price, quantity: tp2Qty,
+        type: 'TAKE_PROFIT_2', side: side, price: tpLevels.tp2Price, quantity: tp2Qty,
         filledQuantity: 0, status: 'OPEN', createdAt: Date.now(), updatedAt: Date.now(),
       };
-      logger.info('ORDER', `🎯 [${symbol}] TP2: ${tp2Qty} @ ${logger.formatUSD(tp2Price)}`);
+      logger.info('ORDER', `🎯 [${symbol}] TP2: ${tp2Qty} @ ${logger.formatUSD(tpLevels.tp2Price)}`);
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -252,7 +261,7 @@ export async function placeSLOrder(
 
   if (config.dryRun) {
     if (!trade.stopLossOrder) {
-      logger.info('ORDER', `🧪 DRY-RUN [${symbol}]: SL simüle edildi @ ${logger.formatUSD(slPrice)}`);
+      logger.info('ORDER', `🧪 DRY-RUN [${symbol}]: SL simulated @ ${logger.formatUSD(slPrice)}`);
       trade.stopLossOrder = {
         id: `dry_sl_${Date.now()}`, clientOrderId: `dry_sl_${Date.now()}`, symbol,
         type: 'STOP_LOSS', side: slSide, price: slPrice, quantity: filledQuantity,
@@ -313,17 +322,17 @@ export async function placeSLOrder(
     persistSet(symbol, trade);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    logger.error('ORDER', `[${symbol}] SL emir hatası: ${msg}`);
+    logger.error('ORDER', `[${symbol}] SL order error: ${msg}`);
     // KRİTİK: SL oluşturulamazsa pozisyon korumasız kalır — acil market çıkış yap
     if (!trade.stopLossOrder) {
-      logger.error('ORDER', `[${symbol}] ⚠️ SL EMRİ OLUŞTURULAMADI! Pozisyon korumasız. Acil market çıkış yapılıyor...`);
+      logger.error('ORDER', `[${symbol}] ⚠️ FAILED TO CREATE SL ORDER! Position is unprotected. Emergency market exit initiated...`);
       try {
         await exchange.createMarketOrder(symbol, slSide, filledQuantity, undefined, { reduceOnly: true });
-        logger.warn('ORDER', `[${symbol}] Pozisyon market emriyle kapatıldı (SL başarısız olduğu için).`);
+        logger.warn('ORDER', `[${symbol}] Position closed via market order (due to SL failure).`);
         clearActiveTrade(symbol);
       } catch (exitErr) {
         const exitMsg = exitErr instanceof Error ? exitErr.message : String(exitErr);
-        logger.error('ORDER', `[${symbol}] ⛔ ACİL ÇIKIŞ DA BAŞARISIZ: ${exitMsg}. MANUEL MÜDAHALE GEREKLİ!`);
+        logger.error('ORDER', `[${symbol}] ⛔ EMERGENCY EXIT ALSO FAILED: ${exitMsg}. MANUAL INTERVENTION REQUIRED!`);
       }
     }
   }
@@ -386,7 +395,7 @@ export async function applyBreakEvenStopLoss(
     logger.info('ORDER', `🔄 [${symbol}] SL → Break-Even @ ${logger.formatUSD(breakEvenPrice)}`);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    logger.error('ORDER', `[${symbol}] Break-Even hatası: ${msg}`);
+    logger.error('ORDER', `[${symbol}] Break-Even error: ${msg}`);
   }
 }
 
@@ -407,7 +416,7 @@ export async function cancelGhostOrders(symbol: string, config: BotConfig): Prom
   if (ordersToCancel.length === 0) return;
 
   if (config.dryRun) {
-    logger.info('CANCEL', `🧪 [${symbol}] ${ordersToCancel.length} ghost emir iptal simülasyonu`);
+    logger.info('CANCEL', `🧪 [${symbol}] ${ordersToCancel.length} ghost order cancel simulation`);
     persistDelete(symbol);
     return;
   }
@@ -417,15 +426,15 @@ export async function cancelGhostOrders(symbol: string, config: BotConfig): Prom
   // cancelAllOrders tüm açık emirleri (hem normal hem conditional) iptal eder.
   try {
     await exchange.cancelAllOrders(symbol);
-    logger.info('CANCEL', `🚫 [${symbol}] Tüm emirler iptal edildi (ghost cancel)`);
+    logger.info('CANCEL', `🚫 [${symbol}] All orders cancelled (ghost cancel)`);
   } catch {
     // Fallback: Tek tek dene
     for (const order of ordersToCancel) {
       try {
         await exchange.cancelOrder(order.id, symbol);
-        logger.info('CANCEL', `🚫 [${symbol}] ${order.type} iptal: ${order.id}`);
+        logger.info('CANCEL', `🚫 [${symbol}] ${order.type} cancelled: ${order.id}`);
       } catch {
-        logger.debug('CANCEL', `[${symbol}] ${order.id} zaten kapalı olabilir`);
+        logger.debug('CANCEL', `[${symbol}] ${order.id} might already be closed`);
       }
     }
   }
@@ -446,7 +455,7 @@ async function cancelSLOrder(symbol: string, slOrderId: string, config: BotConfi
     // Conditional order (STOP_MARKET) cancelOrder ile iptal edilemez
     // cancelAllOrders kullan — bu TP'leri de iptal edecek, ama manageActiveTrade
     // döngüsünde TP'ler yeniden gönderilecek (tp1Order/tp2Order undefined olacak)
-    logger.debug('ORDER', `[${symbol}] SL ${slOrderId} cancelOrder ile iptal edilemedi — cancelAllOrders deneniyor`);
+    logger.debug('ORDER', `[${symbol}] SL ${slOrderId} could not be cancelled with cancelOrder — trying cancelAllOrders`);
     try {
       await exchange.cancelAllOrders(symbol);
       // TP emirlerini de temizle — bir sonraki döngüde yeniden gönderilecek
@@ -456,7 +465,7 @@ async function cancelSLOrder(symbol: string, slOrderId: string, config: BotConfi
         if (trade.tp2Order) trade.tp2Order = undefined;
       }
     } catch (e2) {
-      logger.debug('ORDER', `[${symbol}] cancelAllOrders da başarısız`);
+      logger.debug('ORDER', `[${symbol}] cancelAllOrders also failed`);
     }
   }
 }
@@ -501,22 +510,22 @@ export async function syncOrderStatuses(symbol: string, config: BotConfig): Prom
           // pozisyon kapandığında oluşur. TP emirleri için EXPIRED olarak işaretle.
           else if (closedOrder.status === 'expired') {
             mo.status = 'EXPIRED';
-            logger.warn('ORDER', `[${symbol}] ${mo.type} (${mo.id}) EXPIRED! Emir borsada süresi doldu/reddedildi.`);
+            logger.warn('ORDER', `[${symbol}] ${mo.type} (${mo.id}) EXPIRED! Order expired/rejected by exchange.`);
           }
         } catch (e: any) {
           if (e.message?.includes('-2013') || e.message?.includes('Order does not exist')) {
             // FIX: Futures STOP_MARKET emirleri conditional order tablosunda olduğundan
             // fetchOrder ile bulunamaz. SL emri için bu normal bir durum.
             if (mo.type === 'STOP_LOSS') {
-              logger.debug('ORDER', `[${symbol}] SL ${mo.id} conditional order — fetchOrder ile bulunamaz. Açık kabul ediliyor.`);
+              logger.debug('ORDER', `[${symbol}] SL ${mo.id} conditional order — cannot be fetched via fetchOrder. Assuming OPEN.`);
               // SL conditional order'ı fetchOrder ile takip edemiyoruz.
               // Durumunu değiştirmiyoruz — 'OPEN' olarak kalacak.
             } else {
-              logger.debug('ORDER', `[${symbol}] ${mo.id} borsada bulunamadı. Tetiklenmiş kabul ediliyor.`);
+              logger.debug('ORDER', `[${symbol}] ${mo.id} not found on exchange. Assuming triggered.`);
               mo.status = mo.type === 'ENTRY' ? 'CANCELLED' : 'FILLED';
             }
           } else {
-            logger.debug('ORDER', `[${symbol}] ${mo.id} durumu sorgulanamadı: ${e.message}`);
+            logger.debug('ORDER', `[${symbol}] Could not query status for ${mo.id}: ${e.message}`);
           }
         }
       }
@@ -530,7 +539,7 @@ export async function syncOrderStatuses(symbol: string, config: BotConfig): Prom
     // Durum değişikliğini diske yaz
     saveActiveTrades(activeTrades);
   } catch (e: any) {
-    logger.debug('ORDER', `[${symbol}] Emir senkronizasyonu başarısız: ${e.message}`);
+    logger.debug('ORDER', `[${symbol}] Order sync failed: ${e.message}`);
   }
 }
 
@@ -609,7 +618,7 @@ export async function manageActiveTrade(
         const exchange = getExchange();
         const realEntry = await exchange.fetchOrder(trade.entryOrder.id, symbol);
         if (realEntry.status === 'closed') {
-          logger.info('FILL', `[${symbol}] Entry aslında dolmuş! (syncOrderStatuses bunu kaçırmıştı)`);
+          logger.info('FILL', `[${symbol}] Entry actually filled! (syncOrderStatuses missed it)`);
           trade.entryOrder.status = 'FILLED';
           trade.entryOrder.filledQuantity = realEntry.filled ?? trade.entryOrder.quantity;
           trade.entryOrder.updatedAt = Date.now();
@@ -644,7 +653,7 @@ export async function manageActiveTrade(
       }
 
       if (setupBroken) {
-        logger.warn('ORDER', `[${symbol}] 👻 GHOST EMİR: ${cancelReason}. Pusu iptal ediliyor...`);
+        logger.warn('ORDER', `[${symbol}] 👻 GHOST ORDER: ${cancelReason}. Cancelling ambush...`);
         await cancelGhostOrders(symbol, config);
         // C-05 FIX: Ghost cancel bir gerçek kayıp değil.
         recordTradeResult(cbState, {
@@ -672,7 +681,7 @@ export async function manageActiveTrade(
         trade.entryOrder.status = 'FILLED';
         trade.entryOrder.filledQuantity = trade.entryOrder.quantity;
         trade.entryOrder.updatedAt = Date.now();
-        logger.info('FILL', `🧪 DRY-RUN [${symbol}] Entry DOLDU: ${trade.entryOrder.quantity} @ ${logger.formatUSD(trade.entryOrder.price)}`);
+        logger.info('FILL', `🧪 DRY-RUN [${symbol}] Entry FILLED: ${trade.entryOrder.quantity} @ ${logger.formatUSD(trade.entryOrder.price)}`);
 
         // TP emirlerini oluştur
         if (trade.tp1Price && trade.tp2Price && trade.tp1Quantity && trade.tp2Quantity) {
@@ -702,11 +711,11 @@ export async function manageActiveTrade(
     // 3.0.5 TP Emirlerini Yerleştir / Yeniden Gönder
     // FIX: TP emirleri expired/cancelled olduysa yeniden gönder (reduceOnly çakışması düzeltmesi)
     if (trade.tp1Order?.status === 'EXPIRED' || trade.tp1Order?.status === 'CANCELLED') {
-      logger.warn('ORDER', `[${symbol}] TP1 emri ${trade.tp1Order.status} — yeniden gönderilecek`);
+      logger.warn('ORDER', `[${symbol}] TP1 order is ${trade.tp1Order.status} — will be resent`);
       trade.tp1Order = undefined;
     }
     if (trade.tp2Order?.status === 'EXPIRED' || trade.tp2Order?.status === 'CANCELLED') {
-      logger.warn('ORDER', `[${symbol}] TP2 emri ${trade.tp2Order.status} — yeniden gönderilecek`);
+      logger.warn('ORDER', `[${symbol}] TP2 order is ${trade.tp2Order.status} — will be resent`);
       trade.tp2Order = undefined;
     }
 
@@ -738,7 +747,7 @@ export async function manageActiveTrade(
       };
 
       if (shouldCombine) {
-        logger.warn('ORDER', `[${symbol}] Miktar küçük, TP hedefleri birleştiriliyor (toplam: ${filledQty}).`);
+        logger.warn('ORDER', `[${symbol}] Amount too small, merging TP targets (total: ${filledQty}).`);
       }
 
       await placeTPOrders(symbol, tpLevels, filledQty, config, constraints);
@@ -790,7 +799,7 @@ export async function manageActiveTrade(
       if (!trade.tp2Order) {
         logger.separator();
         const totalQty = trade.entryOrder.filledQuantity || trade.entryOrder.quantity;
-        logger.info('ORDER', `[${symbol}] 🏆 TP hedefine ulaşıldı! Pozisyonun tamamı (${totalQty} lot) kârla kapatıldı.`);
+        logger.info('ORDER', `[${symbol}] 🏆 TP target reached! Entire position (${totalQty} lot) closed with profit.`);
         playSound('PROFIT');
 
         // Stop-loss emrini iptal et
@@ -821,7 +830,7 @@ export async function manageActiveTrade(
       }
 
       const tp1Qty = trade.tp1Quantity ?? (trade.entryOrder.quantity * 0.5);
-      logger.info('ORDER', `[${symbol}] 🎯 TP1 hedefine ulaşıldı! ${tp1Qty} lot kârla satıldı. Kalan kısım için SL Break-Even (başa baş) seviyesine çekiliyor...`);
+      logger.info('ORDER', `[${symbol}] 🎯 TP1 target reached! ${tp1Qty} lot sold for profit. SL moved to Break-Even for remaining amount...`);
       playSound('PROFIT');
       await applyBreakEvenStopLoss(symbol, config, constraints);
     }
@@ -830,7 +839,7 @@ export async function manageActiveTrade(
     if (trade.tp2Order?.status === 'FILLED') {
       logger.separator();
       const tp2Qty = trade.tp2Quantity ?? (trade.entryOrder.quantity * 0.5);
-      logger.info('ORDER', `[${symbol}] 🏆 TP2 hedefine ulaşıldı! Kalan ${tp2Qty} lot da kârla satıldı. İşlem maksimum kârla başarıyla kapatıldı.`);
+      logger.info('ORDER', `[${symbol}] 🏆 TP2 target reached! Remaining ${tp2Qty} lot sold for profit. Trade closed with max profit.`);
       playSound('PROFIT');
 
       // Stop-loss emrini iptal et
@@ -868,7 +877,7 @@ export async function manageActiveTrade(
     // 3.4 Kural: Stop-Loss Tetiklendi
     if (trade.stopLossOrder?.status === 'FILLED') {
       logger.separator();
-      logger.warn('ORDER', `[${symbol}] 🛑 STOP-LOSS TETİKLENDİ!`);
+      logger.warn('ORDER', `[${symbol}] 🛑 STOP-LOSS TRIGGERED!`);
 
       // Kalan açık TP emirlerini iptal et
       if (!config.dryRun) {
@@ -922,7 +931,7 @@ export async function manageActiveTrade(
 
   // 4. Durum: Giriş Emri İptal Edilmişse
   if (trade.entryOrder.status === 'CANCELLED') {
-    logger.info('ORDER', `[${symbol}] Giriş emri iptal edilmiş. Aktif işlem temizlendi.`);
+    logger.info('ORDER', `[${symbol}] Entry order was cancelled. Active trade cleared.`);
     clearActiveTrade(symbol);
   }
 }

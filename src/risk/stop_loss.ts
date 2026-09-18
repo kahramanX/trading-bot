@@ -81,7 +81,7 @@ export function calculateStopLoss(
   if (stopLoss === null) {
     const atr = calculateATR(candles);
     if (atr === null) {
-      logger.error('RISK', 'SL hesaplanamıyor: Swing bulunamadı, ATR verisi yetersiz.');
+      logger.error('RISK', 'Cannot calculate SL: Swing not found, insufficient ATR data.');
       return null;
     }
     const atrDistance = atr * atrMultiplier;
@@ -92,7 +92,7 @@ export function calculateStopLoss(
   stopLoss = roundToTickSize(stopLoss, tickSize);
 
   logger.info('RISK', `SL (${method}): ${logger.formatUSD(stopLoss)} | ` +
-    `Giriş: ${logger.formatUSD(entryPrice)} | Mesafe: ${logger.formatUSD(Math.abs(entryPrice - stopLoss))}`);
+    `Entry: ${logger.formatUSD(entryPrice)} | Distance: ${logger.formatUSD(Math.abs(entryPrice - stopLoss))}`);
 
   return stopLoss;
 }

@@ -39,7 +39,7 @@ export function loadState(currentBalance: number, _config?: BotConfig): CircuitB
       JSON.parse(raw); // Parse test
     }
   } catch (err) {
-    logger.warn('GUARD', 'Durum dosyası (JSON) bozuk veya okunamıyor. Yedek (.bak) dosyasına geçiliyor...');
+    logger.warn('GUARD', 'State file (JSON) is corrupted or cannot be read. Switching to backup (.bak) file...');
     try {
       if (fs.existsSync(bakPath)) {
         raw = fs.readFileSync(bakPath, 'utf-8');
@@ -53,11 +53,11 @@ export function loadState(currentBalance: number, _config?: BotConfig): CircuitB
   try {
     if (raw) {
       const state = JSON.parse(raw) as CircuitBreakerState;
-      if (loadedFromBak) logger.info('GUARD', 'Yedek dosyadan durum başarıyla kurtarıldı.');
+      if (loadedFromBak) logger.info('GUARD', 'State successfully recovered from backup file.');
 
       const today = new Date().toISOString().split('T')[0]!;
       if (state.dailyDate !== today) {
-        logger.info('GUARD', `🌅 Yeni gün (${today}) başladı. Gece Reseti: Günlük sayaçlar ve Circuit Breaker sıfırlandı.`);
+        logger.info('GUARD', `🌅 New day (${today}) started. Night Reset: Daily counters and Circuit Breaker reset.`);
         const newState = createDefaultState(currentBalance);
         saveState(newState);
         return newState;
@@ -65,7 +65,7 @@ export function loadState(currentBalance: number, _config?: BotConfig): CircuitB
 
       if (state.isTripped && state.resumeAt) {
         if (Date.now() >= new Date(state.resumeAt).getTime()) {
-          logger.info('GUARD', `⏰ Cooldown süresi doldu. Circuit Breaker devreden çıkarıldı.`);
+          logger.info('GUARD', `⏰ Cooldown period ended. Circuit Breaker deactivated.`);
           state.isTripped = false;
           state.tripReason = undefined;
           state.resumeAt = undefined;
@@ -78,7 +78,7 @@ export function loadState(currentBalance: number, _config?: BotConfig): CircuitB
       return state;
     }
   } catch {
-    logger.warn('GUARD', 'Durum ve yedek dosyaları tamamen kurtarılamaz durumda. Varsayılan (sıfırlanmış) durum kullanılıyor. Dikkat!');
+    logger.warn('GUARD', 'State and backup files are completely unrecoverable. Default (reset) state is being used. Warning!');
   }
   const defaultState = createDefaultState(currentBalance);
   saveState(defaultState);
@@ -103,7 +103,7 @@ export function saveState(state: CircuitBreakerState): void {
     fs.renameSync(tmpPath, filePath);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error('GUARD', `Durum dosyası atomic yazılamadı: ${msg}`);
+    logger.error('GUARD', `Failed to write state file atomically: ${msg}`);
   }
 }
 
@@ -114,8 +114,8 @@ export function isCircuitBreakerTripped(state: CircuitBreakerState): boolean {
   const remaining = resumeAt ? Math.max(0, resumeAt.getTime() - Date.now()) : 0;
   const hours = (remaining / (1000 * 60 * 60)).toFixed(1);
 
-  logger.warn('GUARD', `🚫 Circuit Breaker AKTİF! Sebep: ${state.tripReason}`);
-  logger.warn('GUARD', `   Kalan: ${hours} saat | Devam: ${resumeAt?.toLocaleTimeString('tr-TR') ?? '?'}`);
+  logger.warn('GUARD', `🚫 Circuit Breaker ACTIVE! Reason: ${state.tripReason}`);
+  logger.warn('GUARD', `   Remaining: ${hours} hours | Resume At: ${resumeAt?.toLocaleTimeString('tr-TR') ?? '?'}`);
   return true;
 }
 
@@ -132,7 +132,7 @@ export function recordTradeResult(
   // C-05 FIX: Ghost cancel bir gerçek işlem değil — consecutiveLosses'ı etkilememeli
   if (result.exitReason === 'GHOST_CANCEL') {
     // Sadece tradeHistory'ye kaydedildi, sayaçlara dokunulmadı
-    logger.info('GUARD', `⚪ [${result.symbol}] Ghost cancel kaydedildi (sayaçları etkilemez).`);
+    logger.info('GUARD', `⚪ [${result.symbol}] Ghost cancel recorded (does not affect counters).`);
     saveState(newState);
     return newState;
   }
@@ -145,16 +145,16 @@ export function recordTradeResult(
 
   const emoji = result.isWin ? '🟢' : '🔴';
   logger.info('GUARD', `${emoji} [${result.symbol}] P&L ${logger.formatUSD(result.pnl)} | ` +
-    `Ardışık kayıp: ${newState.consecutiveLosses}/${config.maxConsecutiveLosses} | ` +
-    `Günlük P&L: ${logger.formatUSD(newState.dailyPnL)}`);
+    `Consecutive losses: ${newState.consecutiveLosses}/${config.maxConsecutiveLosses} | ` +
+    `Daily P&L: ${logger.formatUSD(newState.dailyPnL)}`);
 
   if (newState.consecutiveLosses >= config.maxConsecutiveLosses) {
-    return tripCircuitBreaker(newState, `${config.maxConsecutiveLosses} ardışık stop-loss.`, config);
+    return tripCircuitBreaker(newState, `${config.maxConsecutiveLosses} consecutive stop-losses.`, config);
   }
 
   const dailyLossPct = (Math.abs(newState.dailyPnL) / newState.dailyStartBalance) * 100;
   if (newState.dailyPnL < 0 && dailyLossPct >= config.maxDailyLossPct) {
-    return tripCircuitBreaker(newState, `Günlük kayıp ${logger.formatPct(dailyLossPct)} ≥ ${logger.formatPct(config.maxDailyLossPct)}`, config);
+    return tripCircuitBreaker(newState, `Daily loss ${logger.formatPct(dailyLossPct)} ≥ ${logger.formatPct(config.maxDailyLossPct)}`, config);
   }
 
   saveState(newState);
@@ -169,10 +169,10 @@ function tripCircuitBreaker(state: CircuitBreakerState, reason: string, config?:
   state.resumeAt = resumeAt.toISOString();
 
   logger.separator();
-  logger.warn('GUARD', `🚨 CIRCUIT BREAKER TETİKLENDİ!`);
-  logger.warn('GUARD', `   Sebep: ${reason}`);
-  logger.warn('GUARD', `   ${cooldownHours} saat cooldown. Devam: ${resumeAt.toLocaleString('tr-TR')}`);
-  logger.warn('GUARD', `   Piyasa oturana kadar yeni işlem durduruldu. 🛡️`);
+  logger.warn('GUARD', `🚨 CIRCUIT BREAKER TRIPPED!`);
+  logger.warn('GUARD', `   Reason: ${reason}`);
+  logger.warn('GUARD', `   ${cooldownHours} hours cooldown. Resume at: ${resumeAt.toLocaleString('tr-TR')}`);
+  logger.warn('GUARD', `   New trades stopped until market settles. 🛡️`);
   logger.separator();
 
   saveState(state);
@@ -186,6 +186,6 @@ export function logCircuitBreakerStatus(state: CircuitBreakerState, config: BotC
     ? (Math.abs(state.dailyPnL) / state.dailyStartBalance) * 100 : 0;
 
   logger.info('GUARD', `Circuit Breaker: OK | ` +
-    `Kayıp: ${state.consecutiveLosses}/${config.maxConsecutiveLosses} | ` +
-    `Günlük P&L: ${logger.formatUSD(state.dailyPnL)} (${logger.formatPct(dailyLossPct)}/${logger.formatPct(config.maxDailyLossPct)})`);
+    `Losses: ${state.consecutiveLosses}/${config.maxConsecutiveLosses} | ` +
+    `Daily P&L: ${logger.formatUSD(state.dailyPnL)} (${logger.formatPct(dailyLossPct)}/${logger.formatPct(config.maxDailyLossPct)})`);
 }

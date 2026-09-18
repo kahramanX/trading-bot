@@ -34,7 +34,7 @@ async function mainLoop(): Promise<void> {
   });
 
   if (config.dryRun) {
-    logger.warn('SYSTEM', '🧪 DRY-RUN modu aktif. Borsaya emir GÖNDERİLMEYECEK.');
+    logger.warn('SYSTEM', '🧪 DRY-RUN mode active. Orders WILL NOT be sent to the exchange.');
     logger.separator();
   }
 
@@ -50,14 +50,14 @@ async function mainLoop(): Promise<void> {
       await executeCycle(config);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      logger.error('SYSTEM', `Döngü hatası: ${msg}`);
+      logger.error('SYSTEM', `Loop error: ${msg}`);
     }
 
     if (!isRunning) break;
 
     const waitMs = msUntilNextCandleClose(config.ltfTimeframe);
     const waitMin = (waitMs / 1000 / 60).toFixed(1);
-    logger.info('SYSTEM', `⏳ Sonraki ${config.ltfTimeframe} mum kapanışına ${waitMin} dk. Bekleniyor...`);
+    logger.info('SYSTEM', `⏳ Waiting ${waitMin} min for the next ${config.ltfTimeframe} candle close...`);
     logger.separator();
 
     // FIX: Açık pozisyonlar varken 5 dk boyunca kör bekleme yerine
@@ -90,7 +90,7 @@ async function mainLoop(): Promise<void> {
               await manageActiveTrade(symbol, htfCandles, ltfCandles, config, constraints, cbState);
             } catch (error) {
               const msg = error instanceof Error ? error.message : String(error);
-              logger.debug('SYSTEM', `[${symbol}] Hızlı kontrol hatası: ${msg}`);
+              logger.debug('SYSTEM', `[${symbol}] Fast check error: ${msg}`);
             }
             await sleep(500); // Rate limit koruması
           }
@@ -103,7 +103,7 @@ async function mainLoop(): Promise<void> {
     }
   }
 
-  logger.info('SYSTEM', '👋 Bot kapatıldı.');
+  logger.info('SYSTEM', '👋 Bot is closed.');
 }
 
 /**
@@ -112,14 +112,14 @@ async function mainLoop(): Promise<void> {
  */
 async function executeCycle(config: ReturnType<typeof loadConfig>): Promise<void> {
   logger.separator();
-  logger.info('ENGINE', `🔄 Yeni döngü — ${new Date().toLocaleString('tr-TR')}`);
+  logger.info('ENGINE', `🔄 New cycle — ${new Date().toLocaleString('tr-TR')}`);
 
   // ─── 1. Kasa ─────────────────────────────────────────────
   const balance = await getFreeBalance('USDT');
-  logger.info('RISK', `Kasa: ${logger.formatUSD(balance)} USDT`);
+  logger.info('RISK', `Balance: ${logger.formatUSD(balance)} USDT`);
 
   if (balance < 5) {
-    logger.warn('RISK', `Kasa çok düşük (${logger.formatUSD(balance)} < $5). Döngü atlandı.`);
+    logger.warn('RISK', `Balance is too low (${logger.formatUSD(balance)} < $5). Cycle skipped.`);
     return;
   }
 
@@ -133,13 +133,13 @@ async function executeCycle(config: ReturnType<typeof loadConfig>): Promise<void
     if (!isRunning) break;
 
     logger.separator();
-    logger.info('SYSTEM', `📡 [${symbol}] Analiz ediliyor...`);
+    logger.info('SYSTEM', `📡 Analyzing [${symbol}]...`);
 
     try {
       await analyzeSymbol(symbol, balance, config, cbState);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      logger.error('SYSTEM', `[${symbol}] Hata: ${msg}`);
+      logger.error('SYSTEM', `[${symbol}] Error: ${msg}`);
     }
 
     // Rate limit koruması — çiftler arası 1 saniye bekle
@@ -148,7 +148,7 @@ async function executeCycle(config: ReturnType<typeof loadConfig>): Promise<void
     }
   }
 
-  logger.info('ENGINE', `✅ ${config.tradingPairs.length} çift tarandı.`);
+  logger.info('ENGINE', `✅ Scanned ${config.tradingPairs.length} pairs.`);
 }
 
 /**
@@ -171,17 +171,17 @@ async function analyzeSymbol(
   const ltfCandles = ltfCandlesRaw.slice(0, -1);  // Kapanmamış mumu çıkar
 
   if (htfCandles.length < 20) {
-    logger.warn('SYSTEM', `[${symbol}] HTF veri yetersiz: ${htfCandles.length}/20`);
+    logger.warn('SYSTEM', `[${symbol}] Not enough HTF data: ${htfCandles.length}/20`);
     return;
   }
   if (ltfCandles.length < 50) {
-    logger.warn('SYSTEM', `[${symbol}] LTF veri yetersiz: ${ltfCandles.length}/50`);
+    logger.warn('SYSTEM', `[${symbol}] Not enough LTF data: ${ltfCandles.length}/50`);
     return;
   }
 
   // Zaten aktif işlem varsa emir durumlarını senkronize et / yönet
   if (hasActiveTrade(symbol)) {
-    logger.info('ENGINE', `[${symbol}] Aktif işlem yönetiliyor...`);
+    logger.info('ENGINE', `[${symbol}] Managing active trade...`);
     await manageActiveTrade(symbol, htfCandles, ltfCandles, config, constraints, cbState);
     return;
   }
@@ -190,7 +190,7 @@ async function analyzeSymbol(
   const result = runEntryEngine(symbol, htfCandles, ltfCandles, config, constraints);
 
   if (!result.signal) {
-    logger.debug('ENGINE', `[${symbol}] Sinyal yok (${result.step}): ${result.reason}`);
+    logger.debug('ENGINE', `[${symbol}] No signal (${result.step}): ${result.reason}`);
     return;
   }
 
@@ -205,7 +205,7 @@ async function analyzeSymbol(
   );
 
   if (!posSize.isValid) {
-    logger.warn('ENGINE', `[${symbol}] Pozisyon geçersiz: ${posSize.rejectReason}`);
+    logger.warn('ENGINE', `[${symbol}] Invalid position: ${posSize.rejectReason}`);
     return;
   }
 
@@ -220,7 +220,7 @@ async function analyzeSymbol(
   );
 
   if (!tpLevels.isValid) {
-    logger.warn('ENGINE', `[${symbol}] TP seviyeleri geçersiz: ${tpLevels.rejectReason}`);
+    logger.warn('ENGINE', `[${symbol}] Invalid TP levels: ${tpLevels.rejectReason}`);
     return;
   }
 
@@ -237,7 +237,7 @@ function sleep(ms: number): Promise<void> {
 function setupGracefulShutdown(): void {
   const shutdown = (sig: string) => {
     logger.separator();
-    logger.info('SYSTEM', `⛔ ${sig} alındı. Bot güvenli kapanıyor...`);
+    logger.info('SYSTEM', `⛔ Received ${sig}. Bot is shutting down safely...`);
     isRunning = false;
     if (currentTimer) clearTimeout(currentTimer);
   };
@@ -248,6 +248,6 @@ function setupGracefulShutdown(): void {
 
 setupGracefulShutdown();
 mainLoop().catch(err => {
-  logger.error('SYSTEM', `Fatal: ${err instanceof Error ? err.message : String(err)}`);
+  logger.error('SYSTEM', `Fatal error: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

@@ -145,8 +145,8 @@ export const logger = {
     console.log(`${COLORS.bright}${COLORS.cyan}╔══════════════════════════════════════════════════════════╗${COLORS.reset}`);
     console.log(`${COLORS.bright}${COLORS.cyan}║     ⚡ PRICE ACTION TRADING BOT — ${net} ⚡${COLORS.reset}`);
     console.log(`${COLORS.bright}${COLORS.cyan}╠══════════════════════════════════════════════════════════╣${COLORS.reset}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  Piyasa: ${COLORS.bright}${mType}${levStr}${COLORS.reset}   ${tfInfo ? `${COLORS.yellow}${tfInfo}${COLORS.reset}   ` : ''}Mode: ${config.dryRun ? `${COLORS.yellow}DRY-RUN 🧪${COLORS.reset}` : `${COLORS.green}LIVE 🔴${COLORS.reset}`}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  Çiftler: ${COLORS.bright}${config.pairs.length} adet${COLORS.reset}   Risk: ${COLORS.bright}%${config.riskPct}${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  Market: ${COLORS.bright}${mType}${levStr}${COLORS.reset}   ${tfInfo ? `${COLORS.yellow}${tfInfo}${COLORS.reset}   ` : ''}Mode: ${config.dryRun ? `${COLORS.yellow}DRY-RUN 🧪${COLORS.reset}` : `${COLORS.green}LIVE 🔴${COLORS.reset}`}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  Pairs: ${COLORS.bright}${config.pairs.length}${COLORS.reset}   Risk: ${COLORS.bright}%${config.riskPct}${COLORS.reset}`);
     console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  ${COLORS.dim}${config.pairs.join(', ')}${COLORS.reset}`);
     console.log(`${COLORS.bright}${COLORS.cyan}╚══════════════════════════════════════════════════════════╝${COLORS.reset}`);
     console.log('');

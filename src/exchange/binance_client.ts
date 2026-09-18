@@ -29,7 +29,7 @@ async function withRetry<T>(
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxRetries) {
         const waitMs = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
-        logger.warn('SYSTEM', `${label} başarısız (deneme ${attempt}/${maxRetries}): ${lastError.message}. ${waitMs / 1000}s sonra tekrar...`);
+        logger.warn('SYSTEM', `${label} failed (attempt ${attempt}/${maxRetries}): ${lastError.message}. Retrying in ${waitMs / 1000}s...`);
         await new Promise(r => setTimeout(r, waitMs));
       }
     }
@@ -56,22 +56,22 @@ export async function initExchange(config: BotConfig): Promise<BinanceExchange> 
 
   if (config.network === 'testnet') {
     exchange.setSandboxMode(true);
-    logger.info('SYSTEM', `Binance Spot Testnet bağlantısı kuruluyor...`);
+    logger.info('SYSTEM', `Connecting to Binance Spot Testnet...`);
   } else if (config.network === 'demo') {
     exchange.urls.test = exchange.urls.demo;
     exchange.setSandboxMode(true);
-    logger.info('SYSTEM', `Binance Spot DEMO (Mock Trading) bağlantısı kuruluyor...`);
+    logger.info('SYSTEM', `Connecting to Binance Spot DEMO (Mock Trading)...`);
   } else {
-    logger.info('SYSTEM', `Binance Spot LIVE (Gerçek Para) bağlantısı kuruluyor...`);
+    logger.info('SYSTEM', `Connecting to Binance Spot LIVE (Real Money)...`);
   }
 
   // ─── loadMarkets() zorunlu — tüm sembol bilgilerini yükle ─
   await exchange.loadMarkets();
-  logger.info('SYSTEM', `✅ Piyasa bilgileri yüklendi: ${Object.keys(exchange.markets ?? {}).length} sembol`);
+  logger.info('SYSTEM', `✅ Market data loaded: ${Object.keys(exchange.markets ?? {}).length} symbols`);
 
   // ─── Futures ayarları: Margin ve Kaldıraç ─────────────────
   if (config.marketType === 'futures') {
-    logger.info('SYSTEM', `⚙️ Vadeli İşlemler yapılandırılıyor... Marjin: Isolated | Kaldıraç: ${config.leverage}x`);
+    logger.info('SYSTEM', `⚙️ Configuring Futures... Margin: Isolated | Leverage: ${config.leverage}x`);
     for (const symbol of config.tradingPairs) {
       try {
         await exchange.setMarginMode('isolated', symbol);
@@ -81,13 +81,13 @@ export async function initExchange(config: BotConfig): Promise<BinanceExchange> 
                            errorMsg.includes('-4067') || 
                            errorMsg.includes('Position side cannot be changed');
         if (!isHarmless) {
-          logger.warn('SYSTEM', `  ⚠️ ${symbol} margin mode ayarlanamadı: ${errorMsg}`);
+          logger.warn('SYSTEM', `  ⚠️ ${symbol} failed to set margin mode: ${errorMsg}`);
         }
       }
       try {
         await exchange.setLeverage(config.leverage, symbol);
       } catch (e: any) {
-        logger.warn('SYSTEM', `  ⚠️ ${symbol} kaldıraç ayarlanamadı: ${e.message}`);
+        logger.warn('SYSTEM', `  ⚠️ ${symbol} failed to set leverage: ${e.message}`);
       }
     }
   }
@@ -98,7 +98,7 @@ export async function initExchange(config: BotConfig): Promise<BinanceExchange> 
     const usdtBalance = balance['USDT'];
     const free = usdtBalance?.free ?? 0;
     const total = usdtBalance?.total ?? 0;
-    logger.info('SYSTEM', `✅ Bağlantı başarılı! Kasa: ${logger.formatUSD(Number(free))} serbest / ${logger.formatUSD(Number(total))} toplam USDT`);
+    logger.info('SYSTEM', `✅ Connection successful! Balance: ${logger.formatUSD(Number(free))} free / ${logger.formatUSD(Number(total))} total USDT`);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     throw new Error(`❌ Binance bağlantı hatası: ${msg}`);
@@ -108,10 +108,10 @@ export async function initExchange(config: BotConfig): Promise<BinanceExchange> 
   for (const symbol of config.tradingPairs) {
     try {
       await getSymbolConstraints(symbol);
-      logger.info('SYSTEM', `  📋 ${symbol} — kısıtlamalar yüklendi`);
+      logger.info('SYSTEM', `  📋 ${symbol} — constraints loaded`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.warn('SYSTEM', `  ⚠️ ${symbol} — kısıtlamalar alınamadı: ${msg}`);
+      logger.warn('SYSTEM', `  ⚠️ ${symbol} — failed to load constraints: ${msg}`);
     }
   }
 
@@ -192,7 +192,7 @@ export async function getSymbolConstraints(symbol: string): Promise<SymbolConstr
 
   constraintsCache.set(symbol, constraints);
 
-  logger.debug('SYSTEM', `${symbol} kısıtlamaları: ` +
+  logger.debug('SYSTEM', `${symbol} constraints: ` +
     `minQty=${constraints.minQty} stepSize=${constraints.stepSize} ` +
     `minNotional=$${constraints.minNotional} tickSize=${constraints.tickSize}`);
 
@@ -214,7 +214,7 @@ export async function fetchCandles(
   );
 
   if (!ohlcv || ohlcv.length === 0) {
-    logger.warn('SYSTEM', `Mum verisi alınamadı: ${symbol} ${timeframe}`);
+    logger.warn('SYSTEM', `Failed to fetch candle data: ${symbol} ${timeframe}`);
     return [];
   }
 

@@ -169,20 +169,20 @@ export function logFVGStatus(symbol: string, candles: Candle[]): void {
   const bearishGaps = getActiveFVGs(candles, 'BEARISH');
 
   if (bullishGaps.length > 0) {
-    logger.info('FVG', `[${symbol}] ${bullishGaps.length} aktif Bullish FVG:`);
+    logger.info('FVG', `[${symbol}] ${bullishGaps.length} active Bullish FVGs:`);
     for (const gap of bullishGaps.slice(0, 3)) {
-      logger.info('FVG', `  📐 ${logger.formatUSD(gap.low)} — ${logger.formatUSD(gap.high)} (boyut: ${logger.formatUSD(gap.size)})`);
+      logger.info('FVG', `  📐 ${logger.formatUSD(gap.low)} — ${logger.formatUSD(gap.high)} (size: ${logger.formatUSD(gap.size)})`);
     }
   }
 
   if (bearishGaps.length > 0) {
-    logger.info('FVG', `[${symbol}] ${bearishGaps.length} aktif Bearish FVG:`);
+    logger.info('FVG', `[${symbol}] ${bearishGaps.length} active Bearish FVGs:`);
     for (const gap of bearishGaps.slice(0, 3)) {
-      logger.info('FVG', `  📐 ${logger.formatUSD(gap.low)} — ${logger.formatUSD(gap.high)} (boyut: ${logger.formatUSD(gap.size)})`);
+      logger.info('FVG', `  📐 ${logger.formatUSD(gap.low)} — ${logger.formatUSD(gap.high)} (size: ${logger.formatUSD(gap.size)})`);
     }
   }
 
   if (bullishGaps.length === 0 && bearishGaps.length === 0) {
-    logger.debug('FVG', `[${symbol}] Aktif FVG yok.`);
+    logger.debug('FVG', `[${symbol}] No active FVG.`);
   }
 }

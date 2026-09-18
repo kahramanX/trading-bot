@@ -100,13 +100,14 @@ export function runHTFFilter(htfCandles: Candle[], tf: string = 'HTF'): HTFFilte
 
 /**
  * HTF filtre sonucunu loglar.
+ * Logs the HTF filter result.
  */
 export function logHTFFilter(symbol: string, result: HTFFilterResult): void {
   const biasEmoji = result.bias === 'BULLISH' ? '🟢' : result.bias === 'BEARISH' ? '🔴' : '⚪';
 
   logger.info('HTF', `[${symbol}] ${biasEmoji} HTF Trend: ${result.bias}`);
   logger.info('HTF', `[${symbol}]   EMA(200): ${logger.formatUSD(result.emaValue)} | ` +
-    `Fiyat: ${logger.formatUSD(result.currentPrice)} | ` +
-    `Mesafe: ${result.emaDistance >= 0 ? '+' : ''}${result.emaDistance.toFixed(2)}%`);
-  logger.info('HTF', `[${symbol}]   Yapı: ${result.structureBias} | ${result.reason}`);
+    `Price: ${logger.formatUSD(result.currentPrice)} | ` +
+    `Distance: ${result.emaDistance >= 0 ? '+' : ''}${result.emaDistance.toFixed(2)}%`);
+  logger.info('HTF', `[${symbol}]   Structure: ${result.structureBias} | ${result.reason}`);
 }

@@ -209,11 +209,11 @@ function detectMSS(
  */
 export function logMarketStructure(symbol: string, structure: MarketStructure): void {
   const biasEmoji = structure.bias === 'BULLISH' ? '🟢' : structure.bias === 'BEARISH' ? '🔴' : '⚪';
-  logger.info('LTF', `[${symbol}] Yapı: ${biasEmoji} ${structure.bias} | Swing: ${structure.swingPoints.length} nokta`);
+  logger.info('LTF', `[${symbol}] Structure: ${biasEmoji} ${structure.bias} | Swing: ${structure.swingPoints.length} points`);
 
   if (structure.lastMSS) {
     const mssEmoji = structure.lastMSS.type === 'BULLISH' ? '🔀↗️' : '🔀↘️';
     logger.info('MSS', `[${symbol}] ${mssEmoji} ${structure.lastMSS.type} MSS @ ${logger.formatUSD(structure.lastMSS.price)} ` +
-      `(${structure.lastMSS.confirmed ? 'ONAYLANMIŞ ✅' : 'bekleniyor...'})`);
+      `(${structure.lastMSS.confirmed ? 'CONFIRMED ✅' : 'pending...'})`);
   }
 }
