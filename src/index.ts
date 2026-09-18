@@ -60,7 +60,47 @@ async function mainLoop(): Promise<void> {
     logger.info('SYSTEM', `⏳ Sonraki ${config.ltfTimeframe} mum kapanışına ${waitMin} dk. Bekleniyor...`);
     logger.separator();
 
-    await sleep(waitMs);
+    // FIX: Açık pozisyonlar varken 5 dk boyunca kör bekleme yerine
+    // her 30 saniyede bir emir durumlarını kontrol et.
+    // TP emirleri expired olduğunda hızlıca tespit edip yeniden gönderebilmek için.
+    const FAST_CHECK_INTERVAL_MS = 30_000; // 30 saniye
+    let remainingMs = waitMs;
+
+    while (remainingMs > 0 && isRunning) {
+      const hasAnyActiveTrade = config.tradingPairs.some(s => hasActiveTrade(s));
+
+      if (hasAnyActiveTrade && remainingMs > FAST_CHECK_INTERVAL_MS) {
+        // Açık pozisyon var — kısa aralıkla kontrol et
+        await sleep(FAST_CHECK_INTERVAL_MS);
+        remainingMs -= FAST_CHECK_INTERVAL_MS;
+
+        // Aktif işlemlerin emir durumlarını senkronize et ve yönet
+        for (const symbol of config.tradingPairs) {
+          if (!isRunning) break;
+          if (hasActiveTrade(symbol)) {
+            try {
+              const constraints = await getSymbolConstraints(symbol);
+              const balance = await getFreeBalance('USDT');
+              const cbState = loadState(balance, config);
+              // Mum verileri çek (son durumun güncel olması için)
+              const htfCandlesRaw = await fetchCandles(symbol, config.htfTimeframe, 251);
+              const ltfCandlesRaw = await fetchCandles(symbol, config.ltfTimeframe, 201);
+              const htfCandles = htfCandlesRaw.slice(0, -1);
+              const ltfCandles = ltfCandlesRaw.slice(0, -1);
+              await manageActiveTrade(symbol, htfCandles, ltfCandles, config, constraints, cbState);
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              logger.debug('SYSTEM', `[${symbol}] Hızlı kontrol hatası: ${msg}`);
+            }
+            await sleep(500); // Rate limit koruması
+          }
+        }
+      } else {
+        // Açık pozisyon yok veya kalan süre kısa — normal bekle
+        await sleep(remainingMs);
+        remainingMs = 0;
+      }
+    }
   }
 
   logger.info('SYSTEM', '👋 Bot kapatıldı.');

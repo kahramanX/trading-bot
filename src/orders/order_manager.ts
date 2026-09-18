@@ -268,32 +268,32 @@ export async function placeSLOrder(
     // Varsa eski SL'yi iptal et
     if (trade.stopLossOrder?.status === 'OPEN') {
       if (trade.stopLossOrder.quantity === filledQuantity) return; // Zaten güncel
-      await exchange.cancelOrder(trade.stopLossOrder.id, symbol);
+      await cancelSLOrder(symbol, trade.stopLossOrder.id, config);
     }
 
-    const slParams: any = { stopPrice: slPrice };
-    let slOrderType = 'STOP_LOSS_LIMIT';
-    let slLimitPrice: number | undefined = slPrice;
-
+    let slOrder;
     if (config.marketType === 'futures') {
-      slOrderType = 'STOP_MARKET';
-      slLimitPrice = undefined;
-      slParams.reduceOnly = true;
+      // FIX: Futures STOP_MARKET — ccxt unified API: triggerPrice parametresi kullan
+      // Not: Bu emir Binance'te "conditional order" olarak oluşturulur.
+      // fetchOpenOrders'ta görünmez, cancelOrder yerine cancelAllOrders kullanılmalıdır.
+      slOrder = await exchange.createOrder(symbol, 'market', slSide, filledQuantity, undefined, {
+        triggerPrice: slPrice,
+        reduceOnly: true,
+      });
     } else {
-      // L-05 FIX: Spot SL — limit fiyatını stopPrice'tan offset kadar kaydır.
-      // Gap (ani hareket) durumunda emrin dolma şansını artırır.
+      // Spot STOP_LOSS_LIMIT
       const slOffset = constraints.tickSize * (config.slippageTicks + 1);
+      let slLimitPrice: number;
       if (trade.signal.direction === 'LONG') {
         slLimitPrice = roundToTickSize(slPrice - slOffset, constraints.tickSize);
       } else {
         slLimitPrice = roundToTickSize(slPrice + slOffset, constraints.tickSize);
       }
-      slParams.timeInForce = 'GTC';
+      slOrder = await exchange.createOrder(symbol, 'STOP_LOSS_LIMIT', slSide, filledQuantity, slLimitPrice, {
+        stopPrice: slPrice,
+        timeInForce: 'GTC',
+      });
     }
-
-    const slOrder = await exchange.createOrder(
-      symbol, slOrderType, slSide, filledQuantity, slLimitPrice, slParams,
-    );
 
     trade.stopLossOrder = {
       id: slOrder.id ?? '',
@@ -310,9 +310,22 @@ export async function placeSLOrder(
     };
 
     logger.info('ORDER', `🛡️ [${symbol}] SL: ${trade.stopLossOrder.id} | ${filledQuantity} lot @ ${logger.formatUSD(slPrice)}`);
+    persistSet(symbol, trade);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     logger.error('ORDER', `[${symbol}] SL emir hatası: ${msg}`);
+    // KRİTİK: SL oluşturulamazsa pozisyon korumasız kalır — acil market çıkış yap
+    if (!trade.stopLossOrder) {
+      logger.error('ORDER', `[${symbol}] ⚠️ SL EMRİ OLUŞTURULAMADI! Pozisyon korumasız. Acil market çıkış yapılıyor...`);
+      try {
+        await exchange.createMarketOrder(symbol, slSide, filledQuantity, undefined, { reduceOnly: true });
+        logger.warn('ORDER', `[${symbol}] Pozisyon market emriyle kapatıldı (SL başarısız olduğu için).`);
+        clearActiveTrade(symbol);
+      } catch (exitErr) {
+        const exitMsg = exitErr instanceof Error ? exitErr.message : String(exitErr);
+        logger.error('ORDER', `[${symbol}] ⛔ ACİL ÇIKIŞ DA BAŞARISIZ: ${exitMsg}. MANUEL MÜDAHALE GEREKLİ!`);
+      }
+    }
   }
 }
 
@@ -345,24 +358,22 @@ export async function applyBreakEvenStopLoss(
 
   try {
     if (trade.stopLossOrder?.status === 'OPEN') {
-      await exchange.cancelOrder(trade.stopLossOrder.id, symbol);
+      await cancelSLOrder(symbol, trade.stopLossOrder.id, config);
     }
 
-    const beParams: any = { stopPrice: breakEvenPrice };
-    let slOrderType = 'STOP_LOSS_LIMIT';
-    let slLimitPrice: number | undefined = breakEvenPrice;
-
+    let newSlOrder;
     if (config.marketType === 'futures') {
-      slOrderType = 'STOP_MARKET';
-      slLimitPrice = undefined;
-      beParams.reduceOnly = true;
+      // FIX: ccxt triggerPrice parametresi ile STOP_MARKET oluştur
+      newSlOrder = await exchange.createOrder(symbol, 'market', slSide, remainingQty, undefined, {
+        triggerPrice: breakEvenPrice,
+        reduceOnly: true,
+      });
     } else {
-      beParams.timeInForce = 'GTC';
+      newSlOrder = await exchange.createOrder(symbol, 'STOP_LOSS_LIMIT', slSide, remainingQty, breakEvenPrice, {
+        stopPrice: breakEvenPrice,
+        timeInForce: 'GTC',
+      });
     }
-
-    const newSlOrder = await exchange.createOrder(
-      symbol, slOrderType, slSide, remainingQty, slLimitPrice, beParams,
-    );
 
     trade.stopLossOrder = {
       id: newSlOrder.id ?? '', clientOrderId: `sl_be_${Date.now()}`, symbol,
@@ -381,6 +392,7 @@ export async function applyBreakEvenStopLoss(
 
 /**
  * Ghost emirleri iptal eder.
+ * DİKKAT: Sadece giriş emri henüz dolmamışken çağrılmalı.
  */
 export async function cancelGhostOrders(symbol: string, config: BotConfig): Promise<void> {
   const trade = activeTrades.get(symbol);
@@ -401,16 +413,52 @@ export async function cancelGhostOrders(symbol: string, config: BotConfig): Prom
   }
 
   const exchange = getExchange();
-  for (const order of ordersToCancel) {
-    try {
-      await exchange.cancelOrder(order.id, symbol);
-      logger.info('CANCEL', `🚫 [${symbol}] ${order.type} iptal: ${order.id}`);
-    } catch {
-      logger.debug('CANCEL', `[${symbol}] ${order.id} zaten kapalı olabilir`);
+  // FIX: Futures conditional order'lar (STOP_MARKET) cancelOrder ile iptal edilemez.
+  // cancelAllOrders tüm açık emirleri (hem normal hem conditional) iptal eder.
+  try {
+    await exchange.cancelAllOrders(symbol);
+    logger.info('CANCEL', `🚫 [${symbol}] Tüm emirler iptal edildi (ghost cancel)`);
+  } catch {
+    // Fallback: Tek tek dene
+    for (const order of ordersToCancel) {
+      try {
+        await exchange.cancelOrder(order.id, symbol);
+        logger.info('CANCEL', `🚫 [${symbol}] ${order.type} iptal: ${order.id}`);
+      } catch {
+        logger.debug('CANCEL', `[${symbol}] ${order.id} zaten kapalı olabilir`);
+      }
     }
   }
 
   persistDelete(symbol);
+}
+
+/**
+ * SL emrini iptal eder.
+ * Futures conditional order'lar cancelOrder ile iptal edilemez — cancelAllOrders kullanılır.
+ * Ama cancelAllOrders tüm emirleri iptal edeceğinden, SL iptalinden sonra TP emirleri yeniden gönderilmelidir.
+ */
+async function cancelSLOrder(symbol: string, slOrderId: string, config: BotConfig): Promise<void> {
+  const exchange = getExchange();
+  try {
+    await exchange.cancelOrder(slOrderId, symbol);
+  } catch {
+    // Conditional order (STOP_MARKET) cancelOrder ile iptal edilemez
+    // cancelAllOrders kullan — bu TP'leri de iptal edecek, ama manageActiveTrade
+    // döngüsünde TP'ler yeniden gönderilecek (tp1Order/tp2Order undefined olacak)
+    logger.debug('ORDER', `[${symbol}] SL ${slOrderId} cancelOrder ile iptal edilemedi — cancelAllOrders deneniyor`);
+    try {
+      await exchange.cancelAllOrders(symbol);
+      // TP emirlerini de temizle — bir sonraki döngüde yeniden gönderilecek
+      const trade = activeTrades.get(symbol);
+      if (trade) {
+        if (trade.tp1Order) trade.tp1Order = undefined;
+        if (trade.tp2Order) trade.tp2Order = undefined;
+      }
+    } catch (e2) {
+      logger.debug('ORDER', `[${symbol}] cancelAllOrders da başarısız`);
+    }
+  }
 }
 
 /**
@@ -449,10 +497,24 @@ export async function syncOrderStatuses(symbol: string, config: BotConfig): Prom
           mo.filledQuantity = closedOrder.filled ?? 0;
           if (closedOrder.status === 'closed') mo.status = 'FILLED';
           else if (closedOrder.status === 'canceled') mo.status = 'CANCELLED';
+          // FIX: 'expired' durumu — Binance reduceOnly çakışması veya
+          // pozisyon kapandığında oluşur. TP emirleri için EXPIRED olarak işaretle.
+          else if (closedOrder.status === 'expired') {
+            mo.status = 'EXPIRED';
+            logger.warn('ORDER', `[${symbol}] ${mo.type} (${mo.id}) EXPIRED! Emir borsada süresi doldu/reddedildi.`);
+          }
         } catch (e: any) {
           if (e.message?.includes('-2013') || e.message?.includes('Order does not exist')) {
-            logger.debug('ORDER', `[${symbol}] ${mo.id} borsada bulunamadı. Tetiklenmiş kabul ediliyor.`);
-            mo.status = mo.type === 'ENTRY' ? 'CANCELLED' : 'FILLED';
+            // FIX: Futures STOP_MARKET emirleri conditional order tablosunda olduğundan
+            // fetchOrder ile bulunamaz. SL emri için bu normal bir durum.
+            if (mo.type === 'STOP_LOSS') {
+              logger.debug('ORDER', `[${symbol}] SL ${mo.id} conditional order — fetchOrder ile bulunamaz. Açık kabul ediliyor.`);
+              // SL conditional order'ı fetchOrder ile takip edemiyoruz.
+              // Durumunu değiştirmiyoruz — 'OPEN' olarak kalacak.
+            } else {
+              logger.debug('ORDER', `[${symbol}] ${mo.id} borsada bulunamadı. Tetiklenmiş kabul ediliyor.`);
+              mo.status = mo.type === 'ENTRY' ? 'CANCELLED' : 'FILLED';
+            }
           } else {
             logger.debug('ORDER', `[${symbol}] ${mo.id} durumu sorgulanamadı: ${e.message}`);
           }
@@ -539,38 +601,65 @@ export async function manageActiveTrade(
 
   // 2. Durum: Giriş Emri Henüz Açık (Beklemede)
   if (trade.entryOrder.status === 'OPEN') {
-    // 2.1 Ghost Emir Kontrolü (Setup bozuldu mu?)
-    const htfResult = runHTFFilter(htfCandles, config.htfTimeframe);
-    const ltfStructure = analyzeMarketStructure(ltfCandles, 5, 5);
-
-    let setupBroken = false;
-    let cancelReason = '';
-
-    if (htfResult.bias !== trade.signal.htfBias) {
-      setupBroken = true;
-      cancelReason = `${config.htfTimeframe} trend değişti (${trade.signal.htfBias} → ${htfResult.bias})`;
-    } else if (ltfStructure.lastMSS && ltfStructure.lastMSS.type !== trade.signal.htfBias) {
-      setupBroken = true;
-      cancelReason = `${config.ltfTimeframe}'de ters yönde MSS (${ltfStructure.lastMSS.type}) algılandı`;
+    // FIX: Ghost cancel güvenlik kontrolü — Entry gerçekten açık mı?
+    // syncOrderStatuses başarısız olmuş olabilir ve entry aslında dolmuş olabilir.
+    // Borsadan entry'nin gerçek durumunu doğrudan kontrol et.
+    if (!config.dryRun) {
+      try {
+        const exchange = getExchange();
+        const realEntry = await exchange.fetchOrder(trade.entryOrder.id, symbol);
+        if (realEntry.status === 'closed') {
+          logger.info('FILL', `[${symbol}] Entry aslında dolmuş! (syncOrderStatuses bunu kaçırmıştı)`);
+          trade.entryOrder.status = 'FILLED';
+          trade.entryOrder.filledQuantity = realEntry.filled ?? trade.entryOrder.quantity;
+          trade.entryOrder.updatedAt = Date.now();
+          persistSet(symbol, trade);
+          // Aşağıdaki ghost cancel'a GİRME — entry dolmuş, pozisyon yönetimine devam et
+        } else if (realEntry.status === 'canceled') {
+          trade.entryOrder.status = 'CANCELLED';
+          trade.entryOrder.updatedAt = Date.now();
+          clearActiveTrade(symbol);
+          return;
+        }
+      } catch {
+        // fetchOrder başarısız — mevcut durumla devam et
+      }
     }
 
-    if (setupBroken) {
-      logger.warn('ORDER', `[${symbol}] 👻 GHOST EMİR: ${cancelReason}. Pusu iptal ediliyor...`);
-      await cancelGhostOrders(symbol, config);
-      // C-05 FIX: Ghost cancel bir gerçek kayıp değil.
-      // tradeHistory'ye kaydedilir ama consecutiveLosses artırılmaz.
-      recordTradeResult(cbState, {
-        timestamp: Date.now(),
-        symbol,
-        direction: trade.signal.direction,
-        entryPrice: trade.entryOrder.price,
-        exitPrice: trade.entryOrder.price,
-        quantity: 0,
-        pnl: 0,
-        isWin: true,  // C-05 FIX: Ghost cancel'ı kayıp olarak sayma
-        exitReason: 'GHOST_CANCEL',
-      }, config);
-      return;
+    // Entry hala OPEN ise ghost cancel kontrolü yap
+    if (trade.entryOrder.status === 'OPEN') {
+      // 2.1 Ghost Emir Kontrolü (Setup bozuldu mu?)
+      const htfResult = runHTFFilter(htfCandles, config.htfTimeframe);
+      const ltfStructure = analyzeMarketStructure(ltfCandles, 5, 5);
+
+      let setupBroken = false;
+      let cancelReason = '';
+
+      if (htfResult.bias !== trade.signal.htfBias) {
+        setupBroken = true;
+        cancelReason = `${config.htfTimeframe} trend değişti (${trade.signal.htfBias} → ${htfResult.bias})`;
+      } else if (ltfStructure.lastMSS && ltfStructure.lastMSS.type !== trade.signal.htfBias) {
+        setupBroken = true;
+        cancelReason = `${config.ltfTimeframe}'de ters yönde MSS (${ltfStructure.lastMSS.type}) algılandı`;
+      }
+
+      if (setupBroken) {
+        logger.warn('ORDER', `[${symbol}] 👻 GHOST EMİR: ${cancelReason}. Pusu iptal ediliyor...`);
+        await cancelGhostOrders(symbol, config);
+        // C-05 FIX: Ghost cancel bir gerçek kayıp değil.
+        recordTradeResult(cbState, {
+          timestamp: Date.now(),
+          symbol,
+          direction: trade.signal.direction,
+          entryPrice: trade.entryOrder.price,
+          exitPrice: trade.entryOrder.price,
+          quantity: 0,
+          pnl: 0,
+          isWin: true,
+          exitReason: 'GHOST_CANCEL',
+        }, config);
+        return;
+      }
     }
 
     // 2.2 Dry-run: Fiyat pusu bölgesine geldi mi?
@@ -610,8 +699,18 @@ export async function manageActiveTrade(
       await placeSLOrder(symbol, trade.entryOrder.filledQuantity, config, constraints);
     }
 
-    // 3.0.5 TP Emirlerini Yerleştir (Kısmi Başarısızlıkları Önle)
-    // C-03 FIX: TP emirleri bir kez yerleştirilir. Zaten varsa tekrar hesaplama yapılmaz.
+    // 3.0.5 TP Emirlerini Yerleştir / Yeniden Gönder
+    // FIX: TP emirleri expired/cancelled olduysa yeniden gönder (reduceOnly çakışması düzeltmesi)
+    if (trade.tp1Order?.status === 'EXPIRED' || trade.tp1Order?.status === 'CANCELLED') {
+      logger.warn('ORDER', `[${symbol}] TP1 emri ${trade.tp1Order.status} — yeniden gönderilecek`);
+      trade.tp1Order = undefined;
+    }
+    if (trade.tp2Order?.status === 'EXPIRED' || trade.tp2Order?.status === 'CANCELLED') {
+      logger.warn('ORDER', `[${symbol}] TP2 emri ${trade.tp2Order.status} — yeniden gönderilecek`);
+      trade.tp2Order = undefined;
+    }
+
+    // TP emirleri yoksa (ilk kez veya yeniden gönderim) yerleştir
     if (trade.tp1Price && trade.tp2Price && trade.tp1Quantity && trade.tp2Quantity
         && !trade.tp1Order && !trade.tp2Order) {
 
@@ -631,7 +730,7 @@ export async function manageActiveTrade(
       const tpLevels: TakeProfitLevels = {
         tp1Price: trade.tp1Price,
         tp2Price: trade.tp2Price,
-        tp1Quantity: shouldCombine ? filledQty : trade.tp1Quantity,  // C-03 FIX: filledQty kullan, orijinal quantity değil
+        tp1Quantity: shouldCombine ? filledQty : trade.tp1Quantity,
         tp2Quantity: shouldCombine ? 0 : trade.tp2Quantity,
         riskRewardTP1: config.tp1RR,
         riskRewardTP2: config.tp2RR,
@@ -696,9 +795,8 @@ export async function manageActiveTrade(
 
         // Stop-loss emrini iptal et
         if (!config.dryRun && trade.stopLossOrder?.status === 'OPEN') {
-          const exchange = getExchange();
           try {
-            await exchange.cancelOrder(trade.stopLossOrder.id, symbol);
+            await cancelSLOrder(symbol, trade.stopLossOrder.id, config);
           } catch { /* ignore */ }
         }
 
@@ -737,9 +835,8 @@ export async function manageActiveTrade(
 
       // Stop-loss emrini iptal et
       if (!config.dryRun && trade.stopLossOrder?.status === 'OPEN') {
-        const exchange = getExchange();
         try {
-          await exchange.cancelOrder(trade.stopLossOrder.id, symbol);
+          await cancelSLOrder(symbol, trade.stopLossOrder.id, config);
         } catch { /* ignore */ }
       }
 
@@ -777,8 +874,7 @@ export async function manageActiveTrade(
       if (!config.dryRun) {
         const exchange = getExchange();
         try {
-          if (trade.tp1Order?.status === 'OPEN') await exchange.cancelOrder(trade.tp1Order.id, symbol);
-          if (trade.tp2Order?.status === 'OPEN') await exchange.cancelOrder(trade.tp2Order.id, symbol);
+          await exchange.cancelAllOrders(symbol);
         } catch { /* ignore */ }
       }
 
