@@ -9,7 +9,9 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "backtest:fetch": "npx tsx backtest/fetch_data.ts",
+    "backtest:run": "npx tsx backtest/backtest_runner.ts"
   },
   "dependencies": {
     "ccxt": "^4.4.0",

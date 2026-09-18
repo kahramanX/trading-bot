@@ -20,3 +20,10 @@ Thumbs.db
 
 # Circuit breaker state
 circuit_breaker_state.json
+
+# Backtest data (large OHLCV files)
+backtest/data/
+
+# Backtest results (generated per-run)
+backtest/results/trades.json
+backtest/results/summary.md

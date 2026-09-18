@@ -26,6 +26,9 @@ const WIN_SOUNDS: Record<SoundEvent, string> = {
  * İşletim sistemini tanıyıp kendi yerleşik seslerini kullanır.
  */
 export function playSound(event: SoundEvent): void {
+  // .env üzerinden ses kapatıldıysa çalma (varsayılan: true)
+  if (process.env.ENABLE_SOUND === 'false') return;
+
   const platform = process.platform;
   let command = '';
 
