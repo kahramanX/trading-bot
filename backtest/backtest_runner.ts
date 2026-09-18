@@ -25,6 +25,7 @@ import type {
   SymbolConstraints,
 } from '../src/utils/types.js';
 import { runEntryEngine } from '../src/strategy/entry_engine.js';
+import { CandleSynthesizer, timeframeToMs } from './candle_builder.js';
 import { calculatePositionSize } from '../src/risk/position_sizer.js';
 import { calculateTakeProfitLevels } from '../src/risk/take_profit.js';
 import {
@@ -34,21 +35,22 @@ import {
   getDataFilePath,
 } from './backtest.config.js';
 import type { BacktestConfig } from './backtest.config.js';
+import { parseBinanceCsvs } from './data_loader.js';
 
 // ─── Terminal Color Codes ───────────────────────────────────
 
 const C = {
-  reset:   '\x1b[0m',
-  bright:  '\x1b[1m',
-  dim:     '\x1b[2m',
-  green:   '\x1b[32m',
-  yellow:  '\x1b[33m',
-  blue:    '\x1b[34m',
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
   magenta: '\x1b[35m',
-  cyan:    '\x1b[36m',
-  red:     '\x1b[31m',
-  gray:    '\x1b[90m',
-  white:   '\x1b[37m',
+  cyan: '\x1b[36m',
+  red: '\x1b[31m',
+  gray: '\x1b[90m',
+  white: '\x1b[37m',
 } as const;
 
 // ─── Types ──────────────────────────────────────────────────
@@ -157,17 +159,6 @@ function fmtDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
 }
 
-function timeframeToMs(tf: string): number {
-  const match = tf.match(/^(\d+)([mhdwM])$/);
-  if (!match) throw new Error(`Invalid timeframe: ${tf}`);
-  const value = parseInt(match[1]!, 10);
-  const unit = match[2]!;
-  const multipliers: Record<string, number> = {
-    'm': 60_000, 'h': 3_600_000, 'd': 86_400_000,
-    'w': 604_800_000, 'M': 2_592_000_000,
-  };
-  return value * multipliers[unit]!;
-}
 
 function getDayString(ms: number): string {
   return new Date(ms).toISOString().split('T')[0]!;
@@ -199,13 +190,13 @@ function withSuppressedStdout<T>(fn: () => T): T {
 
 // ─── Data Loader ────────────────────────────────────────────
 
-function loadCandles(symbol: string, timeframe: string): Candle[] {
+async function loadCandles(symbol: string, timeframe: string): Promise<Candle[]> {
   const filePath = path.resolve(process.cwd(), getDataFilePath(symbol, timeframe));
   if (!fs.existsSync(filePath)) {
-    throw new Error(
-      `Data file not found: ${filePath}\n` +
-      `Run "npm run backtest:fetch" first to download historical data.`
-    );
+    console.log(`  [Bypass Logic] Combined JSON not found for ${symbol}. Parsing CSVs...`);
+    const candles = await parseBinanceCsvs(symbol);
+    fs.writeFileSync(filePath, JSON.stringify(candles), 'utf-8');
+    return candles;
   }
   const raw = fs.readFileSync(filePath, 'utf-8');
   const candles = JSON.parse(raw) as Candle[];
@@ -250,11 +241,11 @@ class BacktestEngine {
   };
 
   // Per-symbol data
-  private readonly htfData: Map<string, Candle[]> = new Map();
-  private readonly ltfData: Map<string, Candle[]> = new Map();
-
-  private readonly htfMs: number;
-  private readonly ltfMs: number;
+  private readonly data1m: Map<string, Candle[]> = new Map();
+  private readonly htfBuffers: Map<string, Candle[]> = new Map();
+  private readonly ltfBuffers: Map<string, Candle[]> = new Map();
+  private readonly htfSynthesizers: Map<string, CandleSynthesizer> = new Map();
+  private readonly ltfSynthesizers: Map<string, CandleSynthesizer> = new Map();
 
   // Rolling window sizes — mirror what the live bot fetches
   private readonly LTF_LOOKBACK = 200;  // ~50 hours of 15m candles
@@ -268,8 +259,7 @@ class BacktestEngine {
     this.maxDrawdown = 0;
     this.maxDrawdownPct = 0;
 
-    this.htfMs = timeframeToMs(cfg.htfTimeframe);
-    this.ltfMs = timeframeToMs(cfg.ltfTimeframe);
+
 
     this.cbState = {
       consecutiveLosses: 0,
@@ -283,13 +273,15 @@ class BacktestEngine {
 
   // ─── Load Data ────────────────────────────────────────────
 
-  loadData(): void {
+  async loadData(): Promise<void> {
     for (const symbol of this.cfg.pairs) {
-      const htf = loadCandles(symbol, this.cfg.htfTimeframe);
-      const ltf = loadCandles(symbol, this.cfg.ltfTimeframe);
-      this.htfData.set(symbol, htf);
-      this.ltfData.set(symbol, ltf);
-      console.log(`  📂 ${symbol}: ${htf.length} ${this.cfg.htfTimeframe} + ${ltf.length} ${this.cfg.ltfTimeframe} candles loaded`);
+      const candles1m = await loadCandles(symbol, '1m');
+      this.data1m.set(symbol, candles1m);
+      this.htfBuffers.set(symbol, []);
+      this.ltfBuffers.set(symbol, []);
+      this.htfSynthesizers.set(symbol, new CandleSynthesizer(this.cfg.htfTimeframe));
+      this.ltfSynthesizers.set(symbol, new CandleSynthesizer(this.cfg.ltfTimeframe));
+      console.log(`  📂 ${symbol}: ${candles1m.length} 1m candles loaded`);
     }
   }
 
@@ -299,39 +291,13 @@ class BacktestEngine {
     return `BT-${++this.orderIdCounter}`;
   }
 
-  // ─── HTF Slice (Anti-Lookahead + Window Cap) ─────────────
-  // Only include 4H candles FULLY CLOSED before currentTimestamp.
-  // Cap to last HTF_LOOKBACK candles to mirror live bot behavior
-  // and keep EMA/swing calculations consistent.
-
-  private sliceHTF(symbol: string, currentTimestamp: number): Candle[] {
-    const allHTF = this.htfData.get(symbol)!;
-    const sliced: Candle[] = [];
-    for (const candle of allHTF) {
-      // A candle is "fully closed" when its close time has passed
-      const candleCloseTime = candle.timestamp + this.htfMs;
-      if (candleCloseTime <= currentTimestamp) {
-        sliced.push(candle);
-      } else {
-        break; // Data is sorted, no need to continue
-      }
-    }
-    // Cap to last HTF_LOOKBACK candles — matches live bot's fetchCandles(251)
-    return sliced.slice(-this.HTF_LOOKBACK);
+  // ─── Slices ────────────────────────────────────────────────
+  private sliceHTF(symbol: string): Candle[] {
+    return this.htfBuffers.get(symbol)!;
   }
 
-  // ─── LTF Slice (Window Cap, Anti-Lookahead included) ────
-  // The current bar (barIndex) is the just-CLOSED candle.
-  // Cap to last LTF_LOOKBACK candles to mirror live bot behavior.
-  // This is CRITICAL: passing 12,640 candles to findSwingPoints
-  // breaks MSS detection by burying recent swings under ancient ones.
-
-  private sliceLTF(symbol: string, upToIndex: number): Candle[] {
-    const allLTF = this.ltfData.get(symbol)!;
-    // Include candles from start up to and including the current bar
-    const rawSlice = allLTF.slice(0, upToIndex + 1);
-    // Cap to last LTF_LOOKBACK — matches live bot's fetchCandles(201)
-    return rawSlice.slice(-this.LTF_LOOKBACK);
+  private sliceLTF(symbol: string): Candle[] {
+    return this.ltfBuffers.get(symbol)!;
   }
 
   // ─── Circuit Breaker (In-Memory) ─────────────────────────
@@ -419,13 +385,11 @@ class BacktestEngine {
 
   // ─── Process Pending Orders ──────────────────────────────
 
-  private processPendingOrders(symbol: string, candle: Candle, barIndex: number): void {
+  private processPendingOrders(symbol: string, candle: Candle, currentTimestamp: number): void {
     const toRemove: string[] = [];
 
     for (const [id, order] of this.pendingOrders) {
       if (order.symbol !== symbol) continue;
-
-      order.barsSincePlaced++;
 
       // Ghost Order TTL — cancel if expired
       if (order.barsSincePlaced > this.cfg.orderTtlBars) {
@@ -464,7 +428,7 @@ class BacktestEngine {
           tp1Hit: false,
           breakEvenApplied: false,
           entryTimestamp: candle.timestamp,
-          entryBar: barIndex,
+          entryBar: 0, // unused now, we calculate holding bars by timestamps if needed
           entryFee,
           tp1RealizedPnL: 0,
           tp1RealizedFees: 0,
@@ -489,7 +453,7 @@ class BacktestEngine {
 
   // ─── Process Active Positions ────────────────────────────
 
-  private processActivePositions(symbol: string, candle: Candle, barIndex: number): void {
+  private processActivePositions(symbol: string, candle: Candle, currentTimestamp: number): void {
     const toClose: string[] = [];
 
     for (const [id, pos] of this.activePositions) {
@@ -502,12 +466,12 @@ class BacktestEngine {
       // ─── Pessimistic Execution ────────────────────────
       if (this.cfg.pessimisticExecution) {
         if (!pos.tp1Hit && tp1Reachable && slReachable) {
-          this.closePositionSL(pos, candle, barIndex);
+          this.closePositionSL(pos, candle, currentTimestamp);
           toClose.push(id);
           continue;
         }
         if (pos.tp1Hit && tp2Reachable && slReachable) {
-          this.closePositionSL(pos, candle, barIndex);
+          this.closePositionSL(pos, candle, currentTimestamp);
           toClose.push(id);
           continue;
         }
@@ -515,7 +479,7 @@ class BacktestEngine {
 
       // SL hit only
       if (slReachable && !tp1Reachable && !tp2Reachable) {
-        this.closePositionSL(pos, candle, barIndex);
+        this.closePositionSL(pos, candle, currentTimestamp);
         toClose.push(id);
         continue;
       }
@@ -551,7 +515,7 @@ class BacktestEngine {
 
         // Check if TP2 also hits on this bar
         if (tp2Reachable && !slReachable) {
-          this.closePositionTP2(pos, candle, barIndex);
+          this.closePositionTP2(pos, candle, currentTimestamp);
           toClose.push(id);
         }
         continue;
@@ -559,14 +523,14 @@ class BacktestEngine {
 
       // TP2 hit (after TP1)
       if (pos.tp1Hit && tp2Reachable) {
-        this.closePositionTP2(pos, candle, barIndex);
+        this.closePositionTP2(pos, candle, currentTimestamp);
         toClose.push(id);
         continue;
       }
 
       // SL hit (including break-even SL after TP1)
       if (slReachable) {
-        this.closePositionSL(pos, candle, barIndex);
+        this.closePositionSL(pos, candle, currentTimestamp);
         toClose.push(id);
         continue;
       }
@@ -614,7 +578,7 @@ class BacktestEngine {
     const fullGrossPnl = grossPnl + (pos.tp1Hit ? (pos.tp1RealizedPnL + pos.tp1RealizedFees) : 0);
 
     this.balance += exitLegNetPnl;
-    const holdingBars = barIndex - pos.entryBar;
+    const holdingBars = 0; // Not perfectly accurate in 1m simulation without tracking ltf bars
     const outcome: TradeOutcome = pos.tp1Hit ? 'TP1+BE' : 'STOP';
     const isWin = totalNetPnl >= 0;
 
@@ -667,7 +631,7 @@ class BacktestEngine {
     const tp2NetPnl = tp2GrossPnl - tp2EntryFee - exitFee;
 
     this.balance += tp2NetPnl;
-    const holdingBars = barIndex - pos.entryBar;
+    const holdingBars = 0; // Not perfectly accurate in 1m simulation without tracking ltf bars
     const totalNetPnl = pos.tp1RealizedPnL + tp2NetPnl;
 
     let fullGrossPnl: number;
@@ -774,28 +738,30 @@ class BacktestEngine {
   // MAIN SIMULATION LOOP
   // ═══════════════════════════════════════════════════════════
 
-  run(): void {
+  async run(): Promise<void> {
     this.printInitBanner();
-    this.loadData();
+    await this.loadData();
 
-    // Build unified timeline from all LTF timestamps (deduplicated)
+    // Build unified timeline from all 1m timestamps
     const allTimestamps = new Set<number>();
     for (const symbol of this.cfg.pairs) {
-      const ltf = this.ltfData.get(symbol)!;
-      for (const candle of ltf) allTimestamps.add(candle.timestamp);
+      const candles = this.data1m.get(symbol)!;
+      for (const candle of candles) allTimestamps.add(candle.timestamp);
     }
     const sortedTimestamps = [...allTimestamps].sort((a, b) => a - b);
 
-    // Warmup cutoff — skip first warmupCandles bars for signal generation
-    const warmupCutoff = sortedTimestamps.length > this.cfg.warmupCandles
-      ? sortedTimestamps[this.cfg.warmupCandles]!
-      : sortedTimestamps[sortedTimestamps.length - 1]!;
+    // Warmup cutoff
+    const ltfMs = timeframeToMs(this.cfg.ltfTimeframe);
+    const htfMs = timeframeToMs(this.cfg.htfTimeframe);
+    const warmupMs = Math.max(this.cfg.warmupCandles * htfMs, this.cfg.warmupCandles * ltfMs);
+    const firstTimestamp = sortedTimestamps[0] || 0;
+    const warmupCutoff = firstTimestamp + warmupMs;
 
     const totalBars = sortedTimestamps.length;
     let processedBars = 0;
     let lastProgressPct = 0;
 
-    console.log(`\n  📊 Simulation: ${totalBars.toLocaleString()} bars | LTF window: last ${this.LTF_LOOKBACK} | HTF window: last ${this.HTF_LOOKBACK}\n`);
+    console.log(`\n  📊 Simulation: ${totalBars.toLocaleString()} 1m ticks | LTF window: last ${this.LTF_LOOKBACK} | HTF window: last ${this.HTF_LOOKBACK}\n`);
 
     for (let globalIdx = 0; globalIdx < sortedTimestamps.length; globalIdx++) {
       const currentTimestamp = sortedTimestamps[globalIdx]!;
@@ -813,41 +779,67 @@ class BacktestEngine {
       this.equityCurve.push({ timestamp: currentTimestamp, equity: this.balance });
 
       for (const symbol of this.cfg.pairs) {
-        const allLTF = this.ltfData.get(symbol)!;
-
-        // Binary search for current bar
-        const barIndex = this.findBarIndex(allLTF, currentTimestamp);
+        const all1m = this.data1m.get(symbol)!;
+        const barIndex = this.findBarIndex(all1m, currentTimestamp);
         if (barIndex < 0) continue;
 
-        const currentCandle = allLTF[barIndex]!;
+        const currentCandle = all1m[barIndex]!;
 
-        // ─── Step 1: Process pending limit orders ─────────
-        this.processPendingOrders(symbol, currentCandle, barIndex);
+        // ─── Step 1: Process pending limit orders on 1m tick ─────────
+        this.processPendingOrders(symbol, currentCandle, currentTimestamp);
 
-        // ─── Step 2: Process active positions ─────────────
-        this.processActivePositions(symbol, currentCandle, barIndex);
+        // ─── Step 2: Process active positions on 1m tick ─────────────
+        this.processActivePositions(symbol, currentCandle, currentTimestamp);
 
-        // ─── Step 3: Skip warmup period ───────────────────
+        // ─── Step 3: Feed synthesizers ─────────────────────────────
+        const htfSyn = this.htfSynthesizers.get(symbol)!;
+        const ltfSyn = this.ltfSynthesizers.get(symbol)!;
+
+        const closedHTF = htfSyn.feed(currentCandle);
+        const closedLTF = ltfSyn.feed(currentCandle);
+
+        const htfBuffer = this.htfBuffers.get(symbol)!;
+        const ltfBuffer = this.ltfBuffers.get(symbol)!;
+
+        if (closedHTF) {
+          htfBuffer.push(closedHTF);
+          if (htfBuffer.length > this.HTF_LOOKBACK) htfBuffer.shift();
+        }
+
+        if (closedLTF) {
+          ltfBuffer.push(closedLTF);
+          if (ltfBuffer.length > this.LTF_LOOKBACK) ltfBuffer.shift();
+
+          // Increment TTL for pending orders
+          for (const [id, order] of this.pendingOrders) {
+            if (order.symbol === symbol) order.barsSincePlaced++;
+          }
+        }
+
+        // Only run strategy engine if an LTF candle just closed
+        if (!closedLTF) continue;
+
+        // ─── Step 4: Skip warmup period ───────────────────
         if (currentTimestamp < warmupCutoff) {
           this.diagnostics.barsSkippedWarmup++;
           continue;
         }
 
-        // ─── Step 4: Circuit breaker check ────────────────
+        // ─── Step 5: Circuit breaker check ────────────────
         if (this.checkCircuitBreaker(currentTimestamp)) {
           this.diagnostics.barsSkippedCB++;
           continue;
         }
 
-        // ─── Step 5: Skip if has active position/order ────
+        // ─── Step 6: Skip if has active position/order ────
         if (this.hasActiveOrPending(symbol)) {
           this.diagnostics.barsSkippedHasPosition++;
           continue;
         }
 
-        // ─── Step 6: Slice data (anti-lookahead + capped) ─
-        const htfSlice = this.sliceHTF(symbol, currentTimestamp);
-        const ltfSlice = this.sliceLTF(symbol, barIndex);
+        // ─── Step 7: Slice data (already capped) ─
+        const htfSlice = this.sliceHTF(symbol);
+        const ltfSlice = this.sliceLTF(symbol);
 
         // Minimum data requirements (same as live bot checks)
         if (htfSlice.length < 20) {
@@ -858,9 +850,7 @@ class BacktestEngine {
 
         this.diagnostics.barsAnalyzed++;
 
-        // ─── Step 7: Run strategy engine ──────────────────
-        // Suppress winston logger output — strategy engine logs
-        // thousands of lines which aren't useful during backtest.
+        // ─── Step 8: Run strategy engine ──────────────────
         const constraints = getDefaultConstraints(symbol);
         let engineResult: ReturnType<typeof runEntryEngine> | undefined;
 
@@ -871,9 +861,8 @@ class BacktestEngine {
         } catch (err: unknown) {
           this.diagnostics.signalEngineErrors++;
           const msg = err instanceof Error ? err.message : String(err);
-          // Collect first 5 unique error messages for diagnosis
           if (this.diagnostics.signalEngineErrorMessages.length < 5) {
-            const shortMsg = `[${symbol} bar ${barIndex}] ${msg.slice(0, 120)}`;
+            const shortMsg = `[${symbol} @ ${fmtDate(currentTimestamp)}] ${msg.slice(0, 120)}`;
             if (!this.diagnostics.signalEngineErrorMessages.includes(shortMsg)) {
               this.diagnostics.signalEngineErrorMessages.push(shortMsg);
             }
@@ -886,7 +875,7 @@ class BacktestEngine {
         this.diagnostics.signalsGenerated++;
         const signal = engineResult.signal;
 
-        // ─── Step 8: Position sizing ──────────────────────
+        // ─── Step 9: Position sizing ──────────────────────
         let posSize: ReturnType<typeof calculatePositionSize> | undefined;
         try {
           posSize = withSuppressedStdout(() =>
@@ -909,7 +898,7 @@ class BacktestEngine {
           continue;
         }
 
-        // ─── Step 9: TP levels ────────────────────────────
+        // ─── Step 10: TP levels ────────────────────────────
         let tpLevels: ReturnType<typeof calculateTakeProfitLevels> | undefined;
         try {
           tpLevels = withSuppressedStdout(() =>
@@ -931,7 +920,7 @@ class BacktestEngine {
           continue;
         }
 
-        // ─── Step 10: Place pending limit order ───────────
+        // ─── Step 11: Place pending limit order ───────────
         const orderId = this.nextOrderId();
         this.pendingOrders.set(orderId, {
           id: orderId,
@@ -945,7 +934,7 @@ class BacktestEngine {
           totalQuantity: posSize.quantity,
           tp1Quantity: tpLevels.tp1Quantity,
           tp2Quantity: tpLevels.tp2Quantity,
-          placedAtBar: barIndex,
+          placedAtBar: 0,
           barsSincePlaced: 0,
           placedTimestamp: currentTimestamp,
         });
@@ -969,10 +958,10 @@ class BacktestEngine {
     }
     this.pendingOrders.clear();
 
-    // Force-close remaining active positions at last candle close price
+    // Force-close remaining active positions at last 1m candle close price
     for (const [id, pos] of this.activePositions) {
-      const allLTF = this.ltfData.get(pos.symbol)!;
-      const lastCandle = allLTF[allLTF.length - 1]!;
+      const all1m = this.data1m.get(pos.symbol)!;
+      const lastCandle = all1m[all1m.length - 1]!;
       const remainingQty = pos.tp1Hit ? pos.tp2Quantity : pos.totalQuantity;
 
       let grossPnl: number;
@@ -1037,7 +1026,7 @@ class BacktestEngine {
     console.log(`${C.bright}${C.cyan}║${C.reset}  Balance:  ${C.bright}${fmtUSD(this.cfg.initialBalance)}${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Risk:     ${C.bright}${this.cfg.riskPerTradePct}%${C.reset} per trade`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Pairs:    ${C.bright}${this.cfg.pairs.join(', ')}${C.reset}`);
-    console.log(`${C.bright}${C.cyan}║${C.reset}  Period:   ${C.bright}${this.cfg.days} days${C.reset}`);
+    console.log(`${C.bright}${C.cyan}║${C.reset}  Period:   ${C.bright}Dynamic (from CSVs)${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  HTF/LTF:  ${C.bright}${this.cfg.htfTimeframe} / ${this.cfg.ltfTimeframe}${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Fees:     Maker ${C.bright}${(this.cfg.makerFeeRate * 100).toFixed(2)}%${C.reset} / Taker ${C.bright}${(this.cfg.takerFeeRate * 100).toFixed(2)}%${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Slippage: ${C.bright}${this.cfg.slippagePct}%${C.reset} on SL executions`);
@@ -1083,6 +1072,37 @@ class BacktestEngine {
     console.log(`${C.bright}${C.cyan}║${C.reset}  Stop Loss:          ${C.bright}${stats.stopCount}${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Total Fees Paid:    ${C.yellow}${C.bright}${fmtUSD(stats.totalFees)}${C.reset}`);
     console.log(`${C.bright}${C.cyan}╠══════════════════════════════════════════════════════════╣${C.reset}`);
+    
+    // YEARLY BREAKDOWN
+    console.log(`${C.bright}${C.cyan}║  ${C.yellow}${C.bright}YEARLY BREAKDOWN${C.reset}`);
+    for (const y of stats.yearlyBreakdown) {
+      const pnlColor = y.netPnl >= 0 ? C.green : C.red;
+      const pnlStr = fmtUSD(y.netPnl).padStart(9);
+      const winRate = y.trades > 0 ? ((y.wins / y.trades) * 100).toFixed(1) + '%' : '0%';
+      console.log(`${C.bright}${C.cyan}║${C.reset}  ${y.period}    | ${y.symbol.padEnd(8)} | PnL: ${pnlColor}${pnlStr}${C.reset} | Trades: ${String(y.trades).padEnd(3)} (WR: ${winRate})`);
+    }
+    
+    // MONTHLY BREAKDOWN
+    console.log(`${C.bright}${C.cyan}╠══════════════════════════════════════════════════════════╣${C.reset}`);
+    console.log(`${C.bright}${C.cyan}║  ${C.yellow}${C.bright}MONTHLY BREAKDOWN${C.reset}`);
+    for (const m of stats.monthlyBreakdown) {
+      const pnlColor = m.netPnl >= 0 ? C.green : C.red;
+      const pnlStr = fmtUSD(m.netPnl).padStart(9);
+      const winRate = m.trades > 0 ? ((m.wins / m.trades) * 100).toFixed(1) + '%' : '0%';
+      console.log(`${C.bright}${C.cyan}║${C.reset}  ${m.period} | ${m.symbol.padEnd(8)} | PnL: ${pnlColor}${pnlStr}${C.reset} | Trades: ${String(m.trades).padEnd(3)} (WR: ${winRate})`);
+    }
+
+    // WEEKLY BREAKDOWN
+    console.log(`${C.bright}${C.cyan}╠══════════════════════════════════════════════════════════╣${C.reset}`);
+    console.log(`${C.bright}${C.cyan}║  ${C.yellow}${C.bright}WEEKLY BREAKDOWN${C.reset}`);
+    for (const w of stats.weeklyBreakdown) {
+      const pnlColor = w.netPnl >= 0 ? C.green : C.red;
+      const pnlStr = fmtUSD(w.netPnl).padStart(9);
+      const winRate = w.trades > 0 ? ((w.wins / w.trades) * 100).toFixed(1) + '%' : '0%';
+      console.log(`${C.bright}${C.cyan}║${C.reset}  ${w.period} | ${w.symbol.padEnd(8)} | PnL: ${pnlColor}${pnlStr}${C.reset} | Trades: ${String(w.trades).padEnd(3)} (WR: ${winRate})`);
+    }
+
+    console.log(`${C.bright}${C.cyan}╠══════════════════════════════════════════════════════════╣${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  ${C.yellow}${C.bright}DIAGNOSTICS${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Bars analyzed:      ${C.bright}${D.barsAnalyzed.toLocaleString()}${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Skipped (warmup):   ${C.dim}${D.barsSkippedWarmup.toLocaleString()}${C.reset}`);
@@ -1115,6 +1135,49 @@ class BacktestEngine {
     const grossWin = wins.reduce((s, t) => s + t.netPnl, 0);
     const grossLoss = Math.abs(losses.reduce((s, t) => s + t.netPnl, 0));
 
+    const getISOWeek = (date: Date) => {
+      const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+      const dayNum = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    };
+
+    const yearlyMap = new Map<string, any>();
+    const monthlyMap = new Map<string, any>();
+    const weeklyMap = new Map<string, any>();
+
+    const updateMap = (map: Map<string, any>, period: string, t: any) => {
+      const key = `${t.symbol}|${period}`;
+      if (!map.has(key)) map.set(key, { trades: 0, netPnl: 0, wins: 0, losses: 0 });
+      const stat = map.get(key)!;
+      stat.trades++;
+      stat.netPnl += t.netPnl;
+      if (t.netPnl > 0) stat.wins++;
+      else stat.losses++;
+    };
+
+    for (const t of trades) {
+      const date = new Date(t.exitTimestamp);
+      const year = String(date.getUTCFullYear());
+      const month = `${year}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+      const week = getISOWeek(date);
+
+      updateMap(yearlyMap, year, t);
+      updateMap(monthlyMap, month, t);
+      updateMap(weeklyMap, week, t);
+    }
+
+    const toArray = (map: Map<string, any>) => Array.from(map.entries()).map(([key, stat]) => {
+      const [symbol, period] = key.split('|');
+      return { symbol: symbol as string, period: period as string, ...stat };
+    }).sort((a, b) => a.period.localeCompare(b.period) || a.symbol.localeCompare(b.symbol));
+
+    const yearlyBreakdown = toArray(yearlyMap);
+    const monthlyBreakdown = toArray(monthlyMap);
+    const weeklyBreakdown = toArray(weeklyMap);
+
     return {
       finalBalance: this.balance,
       netReturnPct: ((this.balance - this.cfg.initialBalance) / this.cfg.initialBalance) * 100,
@@ -1134,6 +1197,9 @@ class BacktestEngine {
       tp1BECount: trades.filter(t => t.outcome === 'TP1+BE').length,
       stopCount: trades.filter(t => t.outcome === 'STOP').length,
       totalFees: trades.reduce((s, t) => s + t.fees, 0),
+      yearlyBreakdown,
+      monthlyBreakdown,
+      weeklyBreakdown,
     };
   }
 
@@ -1169,7 +1235,7 @@ class BacktestEngine {
     md += `| Initial Balance | ${fmtUSD(this.cfg.initialBalance)} |\n`;
     md += `| Risk Per Trade | ${this.cfg.riskPerTradePct}% |\n`;
     md += `| Pairs | ${this.cfg.pairs.join(', ')} |\n`;
-    md += `| Period | ${this.cfg.days} days |\n`;
+    md += `| Period | Dynamic (from CSVs) |\n`;
     md += `| HTF / LTF | ${this.cfg.htfTimeframe} / ${this.cfg.ltfTimeframe} |\n`;
     md += `| Maker Fee | ${(this.cfg.makerFeeRate * 100).toFixed(2)}% |\n`;
     md += `| Taker Fee | ${(this.cfg.takerFeeRate * 100).toFixed(2)}% |\n`;
@@ -1194,6 +1260,22 @@ class BacktestEngine {
     md += `| Best Trade | ${fmtUSD(stats.bestTrade)} |\n`;
     md += `| Worst Trade | ${fmtUSD(stats.worstTrade)} |\n`;
     md += `| Total Fees | ${fmtUSD(stats.totalFees)} |\n\n`;
+
+    const renderTable = (data: any[], title: string, periodHeader: string) => {
+      let tbl = `## ${title}\n\n`;
+      tbl += `| ${periodHeader} | Pair | PnL | Trades | Wins | Losses | Win Rate |\n`;
+      tbl += `|---------|------|-----|--------|------|--------|----------|\n`;
+      for (const row of data) {
+        const winRate = row.trades > 0 ? ((row.wins / row.trades) * 100).toFixed(1) + '%' : '0%';
+        tbl += `| ${row.period} | ${row.symbol} | **${fmtUSD(row.netPnl)}** | ${row.trades} | ${row.wins} | ${row.losses} | ${winRate} |\n`;
+      }
+      tbl += `\n`;
+      return tbl;
+    };
+
+    md += renderTable(stats.yearlyBreakdown, 'Yearly Breakdown', 'Year');
+    md += renderTable(stats.monthlyBreakdown, 'Monthly Breakdown', 'Month');
+    md += renderTable(stats.weeklyBreakdown, 'Weekly Breakdown', 'Week');
 
     md += `## Diagnostics\n\n`;
     md += `| Metric | Count |\n|--------|-------|\n`;
@@ -1240,10 +1322,10 @@ class BacktestEngine {
 // ENTRY POINT
 // ═══════════════════════════════════════════════════════════════
 
-function main(): void {
+async function main(): Promise<void> {
   try {
     const engine = new BacktestEngine(backtestConfig);
-    engine.run();
+    await engine.run();
   } catch (err) {
     console.error(`\n${C.red}❌ Fatal error: ${err instanceof Error ? err.message : String(err)}${C.reset}`);
     if (err instanceof Error && err.stack) console.error(err.stack);

@@ -20,9 +20,6 @@ export interface BacktestConfig {
   /** Trading pairs to backtest */
   pairs: string[];
 
-  /** Number of days of historical data to fetch/simulate */
-  days: number;
-
   /** Maker fee rate (decimal, e.g., 0.001 = 0.1%) */
   makerFeeRate: number;
 
@@ -77,9 +74,7 @@ export const backtestConfig: BacktestConfig = {
   riskPerTradePct: 1,
 
   // ─── Pairs — match your .env TRADING_PAIRS ───────────────
-  pairs: ['BTC/USDT', 'ETH/USDT'],
-
-  days: 90,
+  pairs: ['BTC/USDT'],
 
   // ─── Fees — match .env (Futures rates) ───────────────────
   // .env: MAKER_FEE_PCT=0.02, TAKER_FEE_PCT=0.05
@@ -88,22 +83,22 @@ export const backtestConfig: BacktestConfig = {
 
   slippagePct: 0.03,      // Realistic slippage estimate
   orderTtlBars: 16,       // 16 × 15m = 240 minutes (4 hours = 1 HTF candle) TTL
-  warmupCandles: 250,
+  warmupCandles: 100,
   pessimisticExecution: true,
 
   // ─── R:R — SMC optimized ────────────────────────────
-  tp1RR: 1.5,             // Quick liquidity grab / derisk
-  tp2RR: 2.5,               // Runner
-  minRRRatio: 1.5,        // Accept high probability trades
+  tp1RR: 2,             // Quick liquidity grab / derisk
+  tp2RR: 3,               // Runner
+  minRRRatio: 2,        // Accept higher probability/reward trades
 
   // ─── Risk limits — match .env ────────────────────────────
   maxDailyLossPct: 3,
   maxConsecutiveLosses: 3,
   circuitBreakerCooldownHours: 4,
 
-  // ─── Timeframes — match .env (HTF_TIMEFRAME=1h, LTF_TIMEFRAME=5m) ───
-  htfTimeframe: '1h',
-  ltfTimeframe: '5m',
+  // ─── Timeframes ───
+  htfTimeframe: '4h',
+  ltfTimeframe: '15m',
 };
 
 // ─── Synthetic BotConfig Builder ────────────────────────────
@@ -164,5 +159,8 @@ export function getDefaultConstraints(symbol: string): SymbolConstraints {
 
 export function getDataFilePath(symbol: string, timeframe: string): string {
   const sanitized = symbol.replace('/', '');
+  if (timeframe === '1m') {
+    return `backtest/data/${sanitized}_1m_combined.json`;
+  }
   return `backtest/data/${sanitized}_${timeframe}.json`;
 }

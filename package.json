@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "backtest:fetch": "npx tsx backtest/fetch_data.ts",
+    "backtest:load": "npx tsx backtest/data_loader.ts",
     "backtest:run": "npx tsx backtest/backtest_runner.ts"
   },
   "dependencies": {
