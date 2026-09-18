@@ -1,5 +1,9 @@
 # ⚡ Smart Money (SMC) Trading Bot
 
+> 📖 **Detaylı Strateji Dokümantasyonu / Strategy Documentation**
+>
+> Botun işleme giriş/çıkış mantığı, SMC prensipleri, risk yönetimi ve şalter (circuit breaker) mekanizmasının tüm teknik detayları için **[trading_strategy.md](./trading_strategy.md)** belgesini inceleyebilirsiniz. Dosya içeriği hem teknik olmayan okuyucular hem de trader'lar için Türkçe ve İngilizce dillerinde hazırlanmıştır.
+
 Bu proje, duygusuz ve tamamen sistemli bir şekilde çalışan otomatik bir kripto para alım-satım asistanıdır. Temel amacı sizin yerinize piyasayı 7/24 izlemek, belirlenen kurallara harfiyen uymak ve bakiyenizi koruyarak işlem yapmaktır.
 
 ---
@@ -47,7 +51,10 @@ Sistem, kırılım (MSS) gerçekleştikten sonra iki ana bölgeyi hedefler:
 ### Emir ve Pozisyon Yönetimi
 - **R:R (Risk/Reward):** Minimum R:R oranı şartı vardır. Hedefler Kademeli TP şeklindedir (TP1 %50 @ 1:2 R:R, TP2 %50 @ 1:3 R:R).
 - **Break-Even (BE):** Fiyat TP1'e ulaştığında, kalan %50'lik pozisyonun Stop-Loss emri anında Entry (Giriş) fiyatına çekilir (Komisyonlar hesaba katılarak).
+- **Gerçek Pozisyon Senkronizasyonu (True Position Sync):** Binance API'sinin gerçekleşen koşullu emirlerde (Stop-Loss) yaşattığı "-2013 Order does not exist" hatasını aşmak için doğrudan cüzdan/pozisyon boyutunu (`fetchPosition`) kontrol eder. Kapanan işlemleri saniyeler içinde fark edip hayalet (Ghost) emirleri güvenle temizler.
 - **Ghost Order Koruması:** Limit emir beklerken piyasa yapısı tersine döner veya hedefe erken ulaşılırsa, bekleyen pusu emri anında iptal edilir.
+- **Yerleşik Sesli Bildirimler:** İşleme girildiğinde, Kar (TP) alındığında, Zarar Kes (SL) çalıştığında veya sunucu hatası (Timeout) yaşandığında Windows ve Mac sistemlerinin kendi yerleşik uyarı seslerini kullanarak sizi haberdar eder. Ek dosya indirmeye gerek yoktur.
+- **İngilizce Loglar:** Konsol çıktıları (loglar) uluslararası standartlara uyum için tamamen İngilizcedir (B1 seviyesi), kod içi açıklamalar ise Türkçe kalmaya devam eder.
 
 ---
 
