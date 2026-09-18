@@ -1,36 +1,62 @@
 {
-  "LSK/USDT": {
-    "symbol": "LSK/USDT",
+  "SYN/USDT": {
+    "symbol": "SYN/USDT",
     "entryOrder": {
-      "id": "184924251",
-      "clientOrderId": "entry_1789681559789",
-      "symbol": "LSK/USDT",
+      "id": "326872717",
+      "clientOrderId": "entry_1789687835380",
+      "symbol": "SYN/USDT",
       "type": "ENTRY",
       "side": "buy",
-      "price": 0.4383,
-      "quantity": 3215,
-      "filledQuantity": 0,
-      "status": "CANCELLED",
-      "createdAt": 1789681559789,
-      "updatedAt": 1789681835567
+      "price": 0.18355,
+      "quantity": 17310,
+      "filledQuantity": 17310,
+      "status": "FILLED",
+      "createdAt": 1789687835380,
+      "updatedAt": 1789694435457
     },
     "signal": {
-      "symbol": "LSK/USDT",
+      "symbol": "SYN/USDT",
       "direction": "LONG",
-      "entryPrice": 0.43825000000000003,
-      "stopLoss": 0.4254,
-      "takeProfit1": 0.45752500000000007,
-      "takeProfit2": 0.4703750000000001,
+      "entryPrice": 0.183545,
+      "stopLoss": 0.18088,
+      "takeProfit1": 0.1875425,
+      "takeProfit2": 0.19020750000000003,
       "htfBias": "BULLISH",
       "triggerType": "FVG",
-      "confidence": 0.55,
-      "reason": "BULLISH HTF → BULLISH MSS → FVG @ 0.44"
+      "confidence": 0.65,
+      "reason": "BULLISH HTF → BULLISH MSS → FVG @ 0.18"
     },
     "tp1Hit": false,
     "breakEvenApplied": false,
-    "tp1Price": 0.4575,
-    "tp2Price": 0.4704,
-    "tp1Quantity": 1607,
-    "tp2Quantity": 1608
+    "tp1Price": 0.18754,
+    "tp2Price": 0.19021,
+    "tp1Quantity": 8655,
+    "tp2Quantity": 8655,
+    "stopLossOrder": {
+      "id": "1000000208766473",
+      "clientOrderId": "sl_1789694728394",
+      "symbol": "SYN/USDT",
+      "type": "STOP_LOSS",
+      "side": "sell",
+      "price": 0.18088,
+      "quantity": 17310,
+      "filledQuantity": 0,
+      "status": "FILLED",
+      "createdAt": 1789694728394,
+      "updatedAt": 1789695037798
+    },
+    "tp1Order": {
+      "id": "326916943",
+      "clientOrderId": "tp1_1789694728732",
+      "symbol": "SYN/USDT",
+      "type": "TAKE_PROFIT_1",
+      "side": "sell",
+      "price": 0.18754,
+      "quantity": 8655,
+      "filledQuantity": 0,
+      "status": "OPEN",
+      "createdAt": 1789694728732,
+      "updatedAt": 1789695038216
+    }
   }
 }

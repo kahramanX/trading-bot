@@ -1,18 +1,18 @@
 {
   "consecutiveLosses": 1,
-  "dailyPnL": -34.42105758500004,
-  "dailyStartBalance": 3443.14209696,
-  "dailyDate": "2026-09-17",
+  "dailyPnL": -42.295863479999625,
+  "dailyStartBalance": 2700.71643448,
+  "dailyDate": "2026-09-18",
   "isTripped": false,
   "tradeHistory": [
     {
-      "timestamp": 1789669238971,
-      "symbol": "BR/USDT",
+      "timestamp": 1789691111048,
+      "symbol": "BNB/USDT",
       "direction": "LONG",
-      "entryPrice": 0.68569,
-      "exitPrice": 0.66935,
-      "quantity": 2045,
-      "pnl": -34.42105758500004,
+      "entryPrice": 737.88,
+      "exitPrice": 734.34,
+      "quantity": 10.38,
+      "pnl": -42.295863479999625,
       "isWin": false,
       "exitReason": "STOP_LOSS"
     }
