@@ -128,7 +128,6 @@ export async function openTrade(
     };
 
     logger.info('ORDER', `✅ [${symbol}] Entry: ${entryOrder.id} | ${side.toUpperCase()} ${quantity} @ ${logger.formatUSD(entryPrice)}`);
-    playSound('ORDER');
 
     // 5. Save trade
     persistSet(symbol, {
@@ -533,6 +532,7 @@ export async function syncOrderStatuses(symbol: string, config: BotConfig): Prom
       mo.updatedAt = Date.now();
       if (mo.status !== prev) {
         logger.info('FILL', `[${symbol}] ${mo.type}: ${prev} → ${mo.status} (${mo.filledQuantity}/${mo.quantity})`);
+        if (mo.type === 'ENTRY' && mo.status === 'FILLED') playSound('ORDER');
       }
     }
 
@@ -664,6 +664,7 @@ export async function manageActiveTrade(
           trade.entryOrder.status = 'FILLED';
           trade.entryOrder.filledQuantity = realEntry.filled ?? trade.entryOrder.quantity;
           trade.entryOrder.updatedAt = Date.now();
+          playSound('ORDER');
           persistSet(symbol, trade);
           // Aşağıdaki ghost cancel'a GİRME — entry dolmuş, pozisyon yönetimine devam et
         } else if (realEntry.status === 'canceled') {
@@ -724,6 +725,7 @@ export async function manageActiveTrade(
         trade.entryOrder.filledQuantity = trade.entryOrder.quantity;
         trade.entryOrder.updatedAt = Date.now();
         logger.info('FILL', `🧪 DRY-RUN [${symbol}] Entry FILLED: ${trade.entryOrder.quantity} @ ${logger.formatUSD(trade.entryOrder.price)}`);
+        playSound('ORDER');
 
         // TP emirlerini oluştur
         if (trade.tp1Price && trade.tp2Price && trade.tp1Quantity && trade.tp2Quantity) {

@@ -58,7 +58,7 @@ export function runEntryEngine(
 
   // C-02 FIX: Spot piyasada SHORT desteklenmez
   if (config.marketType === 'spot' && direction === 'SHORT') {
-    return noSignal(`[${symbol}] Spot piyasada SHORT desteklenmez. Sinyal atlandı.`, 'SPOT_SHORT_BLOCK');
+    return noSignal(`[${symbol}] SHORT not supported in spot market. Signal skipped.`, 'SPOT_SHORT_BLOCK');
   }
 
   // ─── Adım 2: LTF Market Structure + MSS ──────────────────
@@ -67,19 +67,19 @@ export function runEntryEngine(
 
   // MSS onayı gerekli
   if (!ltfStructure.lastMSS) {
-    return noSignal(`[${symbol}] ${config.ltfTimeframe}'de MSS (yapı kırılması) algılanmadı. Bekleniyor...`, 'MSS_CHECK');
+    return noSignal(`[${symbol}] No MSS detected in ${config.ltfTimeframe}. Waiting...`, 'MSS_CHECK');
   }
 
   // MSS yönü HTF ile uyumlu olmalı
   if (ltfStructure.lastMSS.type !== htfResult.bias) {
     return noSignal(
-      `[${symbol}] MSS yönü (${ltfStructure.lastMSS.type}) HTF ile uyumsuz (${htfResult.bias}). Bekleniyor...`,
+      `[${symbol}] MSS direction (${ltfStructure.lastMSS.type}) conflicts with HTF (${htfResult.bias}). Waiting...`,
       'MSS_DIRECTION'
     );
   }
 
   if (!ltfStructure.lastMSS.confirmed) {
-    return noSignal(`[${symbol}] MSS henüz onaylanmadı (close ile kırılma bekleniyor).`, 'MSS_CONFIRM');
+    return noSignal(`[${symbol}] MSS not yet confirmed (waiting for candle close).`, 'MSS_CONFIRM');
   }
 
   logger.info('ENGINE', `[${symbol}] ✅ MSS confirmed: ${ltfStructure.lastMSS.type} @ ${logger.formatUSD(ltfStructure.lastMSS.price)}`);
@@ -129,7 +129,7 @@ export function runEntryEngine(
 
       if (atr > 0 && distanceToFVG > maxDistance) {
         return noSignal(
-          `[${symbol}] FVG çok uzak: mesafe ${distanceToFVG.toFixed(2)} > ATR×3 (${maxDistance.toFixed(2)}). Pusu atlandı.`,
+          `[${symbol}] FVG too far: distance ${distanceToFVG.toFixed(2)} > ATR×3 (${maxDistance.toFixed(2)}). Ambush skipped.`,
           'FVG_TOO_FAR'
         );
       }
@@ -155,7 +155,7 @@ export function runEntryEngine(
 
   // Hiçbir bölge bulunamadı
   if (!entryPrice) {
-    return noSignal(`[${symbol}] Aktif FVG veya Breaker Block bulunamadı. Bekleniyor...`, 'ZONE_SEARCH');
+    return noSignal(`[${symbol}] No active FVG or Breaker Block found. Waiting...`, 'ZONE_SEARCH');
   }
 
   // ─── Adım 5: SL Hesaplama ────────────────────────────────
@@ -164,7 +164,7 @@ export function runEntryEngine(
   );
 
   if (stopLoss === null) {
-    return noSignal(`[${symbol}] SL hesaplanamadı.`, 'SL_CALC');
+    return noSignal(`[${symbol}] SL could not be calculated.`, 'SL_CALC');
   }
 
   // ─── Adım 6: R:R Ön Kontrol ──────────────────────────────
@@ -179,7 +179,7 @@ export function runEntryEngine(
   const avgRR = (config.tp1RR * 0.5 + config.tp2RR * 0.5);
   if (avgRR < config.minRRRatio) {
     logger.warn('ENGINE', `[${symbol}] Signal rejected: Expected RR ${config.minRRRatio}, Found RR ${avgRR.toFixed(2)}`);
-    return noSignal(`[${symbol}] Sinyal reddedildi: Beklenen RR ${config.minRRRatio}, Bulunan RR ${avgRR.toFixed(2)}`, 'RR_CHECK');
+    return noSignal(`[${symbol}] Signal rejected: Expected RR ${config.minRRRatio}, Found RR ${avgRR.toFixed(2)}`, 'RR_CHECK');
   }
 
   // ─── ✅ Sinyal Oluştur ────────────────────────────────────

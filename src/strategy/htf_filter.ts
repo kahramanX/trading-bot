@@ -64,27 +64,27 @@ export function runHTFFilter(htfCandles: Candle[], tf: string = 'HTF'): HTFFilte
   const rangeThreshold = 0.5; // %0.5
   if (Math.abs(emaDistance) < rangeThreshold) {
     bias = 'NEUTRAL';
-    reason = `Fiyat EMA(200) yakınında sıkışmış (${emaDistance.toFixed(2)}%). Range — nakitte bekle.`;
+    reason = `Price is stuck near EMA(200) (${emaDistance.toFixed(2)}%). Ranging — wait in cash.`;
   }
   // Kural 1: EMA üstü
   else if (currentPrice > emaValue) {
     if (structureBias === 'BEARISH') {
       // Kural 4: EMA bullish ama yapı bearish → çelişki → NEUTRAL
       bias = 'NEUTRAL';
-      reason = `EMA bullish ama ${tf} yapı bearish — çelişki. Bekle.`;
+      reason = `EMA is bullish but ${tf} structure is bearish — contradiction. Wait.`;
     } else {
       bias = 'BULLISH';
-      reason = `Fiyat EMA(200) üstünde (+${emaDistance.toFixed(2)}%). ${tf} yapı: ${structureBias}. LONG ara.`;
+      reason = `Price is above EMA(200) (+${emaDistance.toFixed(2)}%). ${tf} structure: ${structureBias}. Look for LONG.`;
     }
   }
   // Kural 2: EMA altı
   else {
     if (structureBias === 'BULLISH') {
       bias = 'NEUTRAL';
-      reason = `EMA bearish ama ${tf} yapı bullish — çelişki. Bekle.`;
+      reason = `EMA is bearish but ${tf} structure is bullish — contradiction. Wait.`;
     } else {
       bias = 'BEARISH';
-      reason = `Fiyat EMA(200) altında (${emaDistance.toFixed(2)}%). ${tf} yapı: ${structureBias}. SHORT ara.`;
+      reason = `Price is below EMA(200) (${emaDistance.toFixed(2)}%). ${tf} structure: ${structureBias}. Look for SHORT.`;
     }
   }
 

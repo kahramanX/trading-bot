@@ -13,6 +13,7 @@ import { calculateTakeProfitLevels } from './risk/take_profit.js';
 import { hasActiveTrade, openTrade, manageActiveTrade, initActiveTrades } from './orders/order_manager.js';
 import type { CircuitBreakerState } from './utils/types.js';
 import { logger } from './utils/logger.js';
+import { playSound } from './utils/sound_player.js';
 import { msUntilNextCandleClose } from './utils/candle_utils.js';
 
 let isRunning = true;
@@ -51,6 +52,7 @@ async function mainLoop(): Promise<void> {
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       logger.error('SYSTEM', `Loop error: ${msg}`);
+      playSound('ERROR');
     }
 
     if (!isRunning) break;
@@ -249,5 +251,6 @@ function setupGracefulShutdown(): void {
 setupGracefulShutdown();
 mainLoop().catch(err => {
   logger.error('SYSTEM', `Fatal error: ${err instanceof Error ? err.message : String(err)}`);
+  playSound('ERROR');
   process.exit(1);
 });

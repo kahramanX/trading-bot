@@ -66,7 +66,7 @@ export async function initExchange(config: BotConfig): Promise<BinanceExchange> 
   }
 
   // ─── loadMarkets() zorunlu — tüm sembol bilgilerini yükle ─
-  await exchange.loadMarkets();
+  await withRetry(() => exchange!.loadMarkets(), 'loadMarkets (Init Exchange)', 5);
   logger.info('SYSTEM', `✅ Market data loaded: ${Object.keys(exchange.markets ?? {}).length} symbols`);
 
   // ─── Futures ayarları: Margin ve Kaldıraç ─────────────────
@@ -136,7 +136,7 @@ export async function getSymbolConstraints(symbol: string): Promise<SymbolConstr
   const ex = getExchange();
 
   if (!ex.markets || Object.keys(ex.markets).length === 0) {
-    await ex.loadMarkets();
+    await withRetry(() => ex.loadMarkets(), 'loadMarkets (getSymbolConstraints)');
   }
 
   const market = ex.market(symbol);
