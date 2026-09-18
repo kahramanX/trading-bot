@@ -82,6 +82,7 @@ export function loadConfig(): BotConfig {
     maxDailyLossPct:             envFloat('MAX_DAILY_LOSS_PCT', 3),
     maxConsecutiveLosses:        envInt('MAX_CONSECUTIVE_LOSSES', 3),
     circuitBreakerCooldownHours: envFloat('CIRCUIT_BREAKER_COOLDOWN_HOURS', 4),
+    minSlPct:                    envFloat('MIN_SL_PCT', 0.002),
 
     minRRRatio: envFloat('MIN_RR_RATIO', 2.5),
     tp1RR:      envFloat('TP1_RR', 2),

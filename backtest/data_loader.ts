@@ -7,19 +7,27 @@ import type { Candle } from '../src/utils/types.js';
 const DATA_DIR = path.resolve(process.cwd(), 'backtest/data');
 
 export async function parseBinanceCsvs(symbol: string): Promise<Candle[]> {
-  const sanitized = symbol.replace('/', '');
+  const dashFormat = symbol.replace('/', '-');
+  const noSlashFormat = symbol.replace('/', '');
   
   if (!fs.existsSync(DATA_DIR)) {
     throw new Error(`Data directory not found at ${DATA_DIR}. Please download CSV files first.`);
   }
 
   // Find all matching CSV files: {sanitized}-1m-*.csv
-  const files = fs.readdirSync(DATA_DIR).filter(file => 
-    file.startsWith(`${sanitized}-1m-`) && file.endsWith('.csv')
+  let targetDir = DATA_DIR;
+  if (fs.existsSync(path.join(DATA_DIR, dashFormat))) {
+    targetDir = path.join(DATA_DIR, dashFormat);
+  } else if (fs.existsSync(path.join(DATA_DIR, noSlashFormat))) {
+    targetDir = path.join(DATA_DIR, noSlashFormat);
+  }
+
+  const files = fs.readdirSync(targetDir).filter(file => 
+    file.endsWith('.csv') && (file.startsWith(`${noSlashFormat}-1m-`) || file.startsWith(`${dashFormat}-1m-`))
   );
 
   if (files.length === 0) {
-    throw new Error(`No CSV files found for ${symbol} in ${DATA_DIR}. Ensure you downloaded Binance Vision 1m CSVs (e.g. ${sanitized}-1m-2026-01.csv).`);
+    throw new Error(`No CSV files found for ${symbol} in ${targetDir}. Ensure you downloaded Binance Vision 1m CSVs (e.g. ${noSlashFormat}-1m-2026-01.csv).`);
   }
 
   // Sort files just to process them in chronological order
@@ -28,7 +36,7 @@ export async function parseBinanceCsvs(symbol: string): Promise<Candle[]> {
   const allCandles: Candle[] = [];
 
   for (const file of files) {
-    const filePath = path.join(DATA_DIR, file);
+    const filePath = path.join(targetDir, file);
     console.log(`  ▸ Parsing ${file}...`);
     
     const fileStream = fs.createReadStream(filePath);

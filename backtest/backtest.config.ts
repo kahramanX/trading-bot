@@ -6,6 +6,8 @@
 
 process.env.ENABLE_SOUND = 'false';
 
+import fs from 'fs';
+import path from 'path';
 import type { BotConfig, SymbolConstraints } from '../src/utils/types.js';
 
 // ─── Backtest-Specific Configuration ────────────────────────
@@ -58,6 +60,9 @@ export interface BacktestConfig {
   /** Circuit breaker cooldown in simulated hours */
   circuitBreakerCooldownHours: number;
 
+  /** Minimum Stop Loss distance percentage */
+  minSlPct: number;
+
   // ─── Timeframes ───────────────────────────────────────────
 
   /** Higher timeframe for trend filtering */
@@ -67,13 +72,13 @@ export interface BacktestConfig {
   ltfTimeframe: string;
 
   // ─── Institutional Filters ────────────────────────────────
-  
+
   /** ADX period for volatility filtering */
   adxPeriod: number;
-  
+
   /** Minimum ADX value required to trade */
   adxThreshold: number;
-  
+
   /** Allowed sessions (Killzones) */
   allowedSessions: {
     timezone: string;
@@ -84,12 +89,32 @@ export interface BacktestConfig {
 
 // ─── Default Configuration ──────────────────────────────────
 
+// Add pairs you want to skip here, e.g., ['XAU/USDT']
+const EXCLUDED_PAIRS: string[] = ["XAG/USDT", "XPT/USDT"];
+
+function getAvailablePairs(): string[] {
+  try {
+    const dataDir = path.resolve(process.cwd(), 'backtest/data');
+    if (!fs.existsSync(dataDir)) return [];
+    const dirs = fs.readdirSync(dataDir, { withFileTypes: true })
+      .filter(dirent => dirent.isDirectory())
+      .map(dirent => dirent.name)
+      .filter(name => name.includes('-'));
+    if (dirs.length === 0) return [];
+    return dirs
+      .map(name => name.replace('-', '/'))
+      .filter(pair => !EXCLUDED_PAIRS.includes(pair));
+  } catch {
+    return [];
+  }
+}
+
 export const backtestConfig: BacktestConfig = {
-  initialBalance: 5000,
+  initialBalance: 1000,
   riskPerTradePct: 1,
 
-  // ─── Pairs — match your .env TRADING_PAIRS ───────────────
-  pairs: ['BTC/USDT'],
+  // ─── Pairs — dynamically loaded from backtest/data ───────────────
+  pairs: getAvailablePairs(),
 
   // ─── Fees — match .env (Futures rates) ───────────────────
   // .env: MAKER_FEE_PCT=0.02, TAKER_FEE_PCT=0.05
@@ -97,7 +122,7 @@ export const backtestConfig: BacktestConfig = {
   takerFeeRate: 0.0005,   // 0.05% Futures taker (Binance Live)
 
   slippagePct: 0.03,      // Realistic slippage estimate
-  orderTtlBars: 16,       // 16 × 15m = 240 minutes (4 hours = 1 HTF candle) TTL
+  orderTtlBars: 12,       // 12 bars TTL
   warmupCandles: 250,
   pessimisticExecution: true,
 
@@ -110,8 +135,9 @@ export const backtestConfig: BacktestConfig = {
   maxDailyLossPct: 3,
   maxConsecutiveLosses: 3,
   circuitBreakerCooldownHours: 4,
+  minSlPct: 0.002,
 
-  // ─── Timeframes ───
+  // ─── Timeframes ───────────────────────────────────────────
   htfTimeframe: '1h',
   ltfTimeframe: '5m',
 
@@ -135,7 +161,7 @@ export function buildBotConfig(cfg: BacktestConfig): BotConfig {
     apiSecret: 'BACKTEST_NO_SECRET',
     network: 'demo',
     marketType: 'futures',
-    leverage: 5,            // matches .env FUTURES_LEVERAGE=5
+    leverage: 50,
 
     tradingPairs: cfg.pairs,
 
@@ -143,6 +169,7 @@ export function buildBotConfig(cfg: BacktestConfig): BotConfig {
     maxDailyLossPct: cfg.maxDailyLossPct,
     maxConsecutiveLosses: cfg.maxConsecutiveLosses,
     circuitBreakerCooldownHours: cfg.circuitBreakerCooldownHours,
+    minSlPct: cfg.minSlPct,
 
     minRRRatio: cfg.minRRRatio,
     tp1RR: cfg.tp1RR,
@@ -186,9 +213,19 @@ export function getDefaultConstraints(symbol: string): SymbolConstraints {
 // ─── Data File Path Helper ──────────────────────────────────
 
 export function getDataFilePath(symbol: string, timeframe: string): string {
-  const sanitized = symbol.replace('/', '');
-  if (timeframe === '1m') {
-    return `backtest/data/${sanitized}_1m_combined.json`;
+  const dashFormat = symbol.replace('/', '-');
+  const noSlashFormat = symbol.replace('/', '');
+
+  let p = `backtest/data/${dashFormat}_${timeframe}.json`;
+  if (timeframe === '1m') p = `backtest/data/${dashFormat}_1m_combined.json`;
+
+  if (fs.existsSync(path.resolve(process.cwd(), p))) {
+    return p;
   }
-  return `backtest/data/${sanitized}_${timeframe}.json`;
+
+  // Fallback to old format
+  if (timeframe === '1m') {
+    return `backtest/data/${noSlashFormat}_1m_combined.json`;
+  }
+  return `backtest/data/${noSlashFormat}_${timeframe}.json`;
 }

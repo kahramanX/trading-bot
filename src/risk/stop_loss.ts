@@ -53,6 +53,7 @@ export function calculateStopLoss(
   zoneEdge: number,
   tickSize: number,
   atrMultiplier: number = 1.5,
+  minSlPct: number = 0.002, // default 0.2%
 ): number | null {
   const swings = findSwingPoints(candles);
   let stopLoss: number | null = null;
@@ -90,6 +91,19 @@ export function calculateStopLoss(
   }
 
   stopLoss = roundToTickSize(stopLoss, tickSize);
+
+  // Apply Minimum SL Percentage Safeguard
+  const slDistance = Math.abs(entryPrice - stopLoss);
+  const slPct = slDistance / entryPrice;
+  
+  if (slPct < minSlPct) {
+    const minDistance = entryPrice * minSlPct;
+    stopLoss = direction === 'LONG' 
+      ? entryPrice - minDistance
+      : entryPrice + minDistance;
+    stopLoss = roundToTickSize(stopLoss, tickSize);
+    method += ` (Adjusted to min ${(minSlPct * 100).toFixed(2)}%)`;
+  }
 
   logger.info('RISK', `SL (${method}): ${logger.formatUSD(stopLoss)} | ` +
     `Entry: ${logger.formatUSD(entryPrice)} | Distance: ${logger.formatUSD(Math.abs(entryPrice - stopLoss))}`);

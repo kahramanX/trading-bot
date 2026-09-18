@@ -209,6 +209,7 @@ export interface BotConfig {
   maxDailyLossPct: number;
   maxConsecutiveLosses: number;
   circuitBreakerCooldownHours: number;
+  minSlPct: number;
 
   // R:R
   minRRRatio: number;

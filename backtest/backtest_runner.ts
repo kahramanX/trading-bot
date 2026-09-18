@@ -55,7 +55,7 @@ const C = {
 
 // ─── Types ──────────────────────────────────────────────────
 
-type TradeOutcome = 'FULL_TP' | 'TP1+BE' | 'STOP' | 'EXPIRED';
+type TradeOutcome = 'FULL_TP' | 'TP1+BE' | 'STOP' | 'EXPIRED' | 'TIME_LIMIT';
 
 interface PendingOrder {
   id: string;
@@ -92,6 +92,7 @@ interface ActivePosition {
   entryFee: number;
   tp1RealizedPnL: number;
   tp1RealizedFees: number;
+  holdingBars: number;
 }
 
 interface ClosedTrade {
@@ -453,6 +454,7 @@ class BacktestEngine {
           entryFee,
           tp1RealizedPnL: 0,
           tp1RealizedFees: 0,
+          holdingBars: 0,
         };
 
         this.activePositions.set(id, position);
@@ -522,8 +524,8 @@ class BacktestEngine {
 
         this.balance += tp1NetPnL;
         pos.tp1Hit = true;
-        pos.breakEvenApplied = true;
-        pos.stopLoss = pos.entryPrice;  // Break-Even
+        // Break-Even disabled: SL remains at original structural level
+        pos.breakEvenApplied = false;
         pos.tp1RealizedPnL = tp1NetPnL;
         pos.tp1RealizedFees = tp1EntryFee + exitFee;
 
@@ -531,7 +533,7 @@ class BacktestEngine {
 
         this.logSystem(
           `🎯 [${symbol}] TP1 HIT @ ${fmtUSD(pos.takeProfit1)} — closed 50% ` +
-          `| PnL: ${fmtUSD(tp1NetPnL)} | SL → Break-Even @ ${fmtUSD(pos.entryPrice)}`
+          `| PnL: ${fmtUSD(tp1NetPnL)} | SL remains at ${fmtUSD(pos.stopLoss)}`
         );
 
         // Check if TP2 also hits on this bar
@@ -599,7 +601,6 @@ class BacktestEngine {
     const fullGrossPnl = grossPnl + (pos.tp1Hit ? (pos.tp1RealizedPnL + pos.tp1RealizedFees) : 0);
 
     this.balance += exitLegNetPnl;
-    const holdingBars = 0; // Not perfectly accurate in 1m simulation without tracking ltf bars
     const outcome: TradeOutcome = pos.tp1Hit ? 'TP1+BE' : 'STOP';
     const isWin = totalNetPnl >= 0;
 
@@ -617,7 +618,7 @@ class BacktestEngine {
       slippage,
       netPnl: totalNetPnl,
       outcome,
-      holdingBars,
+      holdingBars: pos.holdingBars,
       balanceAfter: this.balance,
     });
 
@@ -652,7 +653,6 @@ class BacktestEngine {
     const tp2NetPnl = tp2GrossPnl - tp2EntryFee - exitFee;
 
     this.balance += tp2NetPnl;
-    const holdingBars = 0; // Not perfectly accurate in 1m simulation without tracking ltf bars
     const totalNetPnl = pos.tp1RealizedPnL + tp2NetPnl;
 
     let fullGrossPnl: number;
@@ -683,7 +683,7 @@ class BacktestEngine {
       slippage: 0,
       netPnl: totalNetPnl,
       outcome: 'FULL_TP',
-      holdingBars,
+      holdingBars: pos.holdingBars,
       balanceAfter: this.balance,
     });
 
@@ -1037,7 +1037,63 @@ class BacktestEngine {
     return -1;
   }
 
-  // ─── Init Banner ─────────────────────────────────────────
+  // ─── Close Position — Time Limit (Market) ────────────────
+
+  private closePositionMarket(pos: ActivePosition, candle: Candle, barIndex: number, outcome: TradeOutcome): void {
+    const remainingQty = pos.tp1Hit ? pos.tp2Quantity : pos.totalQuantity;
+    const fillPrice = candle.close; // Approximate market fill at candle close
+    const exitNotional = fillPrice * remainingQty;
+    const exitFee = this.calcTakerFee(exitNotional);
+    const slippage = this.calcSlippage(fillPrice, remainingQty);
+    const actualFillPrice = pos.direction === 'LONG' ? fillPrice - slippage : fillPrice + slippage;
+
+    let grossPnl: number;
+    if (pos.direction === 'LONG') {
+      grossPnl = (actualFillPrice - pos.entryPrice) * remainingQty;
+    } else {
+      grossPnl = (pos.entryPrice - actualFillPrice) * remainingQty;
+    }
+
+    const entryFeeShare = pos.entryFee * (remainingQty / pos.totalQuantity);
+    const exitLegFee = entryFeeShare + exitFee;
+    const exitLegNetPnl = grossPnl - exitLegFee;
+
+    const totalNetPnl = exitLegNetPnl + (pos.tp1Hit ? pos.tp1RealizedPnL : 0);
+    const totalFees = exitLegFee + (pos.tp1Hit ? pos.tp1RealizedFees : 0);
+    const fullGrossPnl = grossPnl + (pos.tp1Hit ? (pos.tp1RealizedPnL + pos.tp1RealizedFees) : 0);
+
+    this.balance += exitLegNetPnl;
+    const isWin = totalNetPnl >= 0;
+
+    this.closedTrades.push({
+      id: pos.id,
+      symbol: pos.symbol,
+      direction: pos.direction,
+      entryPrice: pos.entryPrice,
+      exitPrice: actualFillPrice,
+      entryTimestamp: pos.entryTimestamp,
+      exitTimestamp: candle.timestamp,
+      quantity: pos.totalQuantity,
+      grossPnl: fullGrossPnl,
+      fees: totalFees,
+      slippage,
+      netPnl: totalNetPnl,
+      outcome,
+      holdingBars: pos.holdingBars,
+      balanceAfter: this.balance,
+    });
+
+    this.updateDrawdown();
+    this.recordTradeInCB(totalNetPnl, isWin, candle.timestamp);
+
+    const pnlPct = (totalNetPnl / Math.max(this.balance, 1)) * 100;
+    this.logReceipt(
+      candle.timestamp, pos.symbol, pos.direction,
+      pos.entryPrice, actualFillPrice, outcome, totalNetPnl, pnlPct, this.balance
+    );
+  }
+
+  // ─── Engine Core loop ─────────────────────────────────────────
 
   private printInitBanner(): void {
     console.log('');
@@ -1093,7 +1149,7 @@ class BacktestEngine {
     console.log(`${C.bright}${C.cyan}║${C.reset}  Stop Loss:          ${C.bright}${stats.stopCount}${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Total Fees Paid:    ${C.yellow}${C.bright}${fmtUSD(stats.totalFees)}${C.reset}`);
     console.log(`${C.bright}${C.cyan}╠══════════════════════════════════════════════════════════╣${C.reset}`);
-    
+
     // YEARLY BREAKDOWN
     console.log(`${C.bright}${C.cyan}║  ${C.yellow}${C.bright}YEARLY BREAKDOWN${C.reset}`);
     for (const y of stats.yearlyBreakdown) {
@@ -1102,7 +1158,7 @@ class BacktestEngine {
       const winRate = y.trades > 0 ? ((y.wins / y.trades) * 100).toFixed(1) + '%' : '0%';
       console.log(`${C.bright}${C.cyan}║${C.reset}  ${y.period}    | ${y.symbol.padEnd(8)} | PnL: ${pnlColor}${pnlStr}${C.reset} | Trades: ${String(y.trades).padEnd(3)} (WR: ${winRate})`);
     }
-    
+
     // MONTHLY BREAKDOWN
     console.log(`${C.bright}${C.cyan}╠══════════════════════════════════════════════════════════╣${C.reset}`);
     console.log(`${C.bright}${C.cyan}║  ${C.yellow}${C.bright}MONTHLY BREAKDOWN${C.reset}`);
@@ -1258,6 +1314,7 @@ class BacktestEngine {
     md += `| Max Daily Loss | ${this.cfg.maxDailyLossPct}% |\n`;
     md += `| Max Cons. Losses | ${this.cfg.maxConsecutiveLosses} |\n`;
     md += `| CB Cooldown | ${this.cfg.circuitBreakerCooldownHours} hours |\n`;
+    md += `| Leverage (Simulated) | ${this.botConfig.leverage}x |\n`;
     md += `| TP1 R:R | ${this.cfg.tp1RR} |\n`;
     md += `| TP2 R:R | ${this.cfg.tp2RR} |\n`;
     md += `| Min R:R Ratio | ${this.cfg.minRRRatio} |\n`;
@@ -1272,7 +1329,46 @@ class BacktestEngine {
     md += `| ADX Filter | Period: ${this.cfg.adxPeriod} \\| Threshold: ${this.cfg.adxThreshold} |\n`;
     md += `| Allowed Sessions | TZ: ${this.cfg.allowedSessions.timezone} \\| London: ${this.cfg.allowedSessions.london.start}-${this.cfg.allowedSessions.london.end} \\| NY: ${this.cfg.allowedSessions.ny.start}-${this.cfg.allowedSessions.ny.end} |\n\n`;
 
-    md += `## Performance\n\n`;
+    // Group tables by symbol
+    const renderTable = (data: any[], title: string, periodHeader: string, symbol: string) => {
+      const filtered = data.filter(d => d.symbol === symbol);
+      if (filtered.length === 0) return '';
+
+      let tbl = `#### ${title}\n\n`;
+      tbl += `| ${periodHeader} | PnL | Trades | Wins | Losses | Win Rate |\n`;
+      tbl += `|---------|-----|--------|------|--------|----------|\n`;
+      for (const row of filtered) {
+        const winRate = row.trades > 0 ? ((row.wins / row.trades) * 100).toFixed(1) + '%' : '0%';
+        tbl += `| ${row.period} | **${fmtUSD(row.netPnl)}** | ${row.trades} | ${row.wins} | ${row.losses} | ${winRate} |\n`;
+      }
+      tbl += `\n`;
+      return tbl;
+    };
+
+    md += `## Individual Pair Performance\n\n`;
+    for (const symbol of this.cfg.pairs) {
+      md += `### 💎 ${symbol}\n\n`;
+
+      const symTrades = this.closedTrades.filter(t => t.symbol === symbol);
+      const symWins = symTrades.filter(t => t.netPnl > 0);
+      const symLosses = symTrades.filter(t => t.netPnl <= 0);
+      const symNetPnl = symTrades.reduce((s, t) => s + t.netPnl, 0);
+      const symGrossWin = symWins.reduce((s, t) => s + t.netPnl, 0);
+      const symGrossLoss = Math.abs(symLosses.reduce((s, t) => s + t.netPnl, 0));
+      const symWinRate = symTrades.length > 0 ? (symWins.length / symTrades.length) * 100 : 0;
+      const symPF = symGrossLoss > 0 ? symGrossWin / symGrossLoss : (symGrossWin > 0 ? Infinity : 0);
+
+      md += `| Total Trades | Win Rate | Net PnL | Profit Factor |\n|--------|----------|---------|----|\n`;
+      md += `| ${symTrades.length} | ${symWinRate.toFixed(1)}% | ${fmtUSD(symNetPnl)} | ${symPF === Infinity ? '∞' : symPF.toFixed(2)} |\n\n`;
+
+      md += renderTable(stats.yearlyBreakdown, 'Yearly Breakdown', 'Year', symbol);
+      md += renderTable(stats.monthlyBreakdown, 'Monthly Breakdown', 'Month', symbol);
+      md += renderTable(stats.weeklyBreakdown, 'Weekly Breakdown', 'Week', symbol);
+
+      md += `---\n\n`;
+    }
+
+    md += `## 🌍 Total Performance (All Symbols)\n\n`;
     md += `| Metric | Value |\n|--------|-------|\n`;
     md += `| **Final Balance** | **${fmtUSD(stats.finalBalance)}** |\n`;
     md += `| **Net Return** | **${fmtPct(stats.netReturnPct)}** |\n`;
@@ -1286,22 +1382,6 @@ class BacktestEngine {
     md += `| Best Trade | ${fmtUSD(stats.bestTrade)} |\n`;
     md += `| Worst Trade | ${fmtUSD(stats.worstTrade)} |\n`;
     md += `| Total Fees | ${fmtUSD(stats.totalFees)} |\n\n`;
-
-    const renderTable = (data: any[], title: string, periodHeader: string) => {
-      let tbl = `## ${title}\n\n`;
-      tbl += `| ${periodHeader} | Pair | PnL | Trades | Wins | Losses | Win Rate |\n`;
-      tbl += `|---------|------|-----|--------|------|--------|----------|\n`;
-      for (const row of data) {
-        const winRate = row.trades > 0 ? ((row.wins / row.trades) * 100).toFixed(1) + '%' : '0%';
-        tbl += `| ${row.period} | ${row.symbol} | **${fmtUSD(row.netPnl)}** | ${row.trades} | ${row.wins} | ${row.losses} | ${winRate} |\n`;
-      }
-      tbl += `\n`;
-      return tbl;
-    };
-
-    md += renderTable(stats.yearlyBreakdown, 'Yearly Breakdown', 'Year');
-    md += renderTable(stats.monthlyBreakdown, 'Monthly Breakdown', 'Month');
-    md += renderTable(stats.weeklyBreakdown, 'Weekly Breakdown', 'Week');
 
     md += `## Diagnostics\n\n`;
     md += `| Metric | Count |\n|--------|-------|\n`;
@@ -1320,21 +1400,6 @@ class BacktestEngine {
         md += `- \`${msg}\`\n`;
       }
       md += '\n';
-    }
-
-    // Per-symbol breakdown
-    md += `## Per-Symbol Breakdown\n\n`;
-    md += `| Symbol | Trades | Win Rate | Net PnL | PF |\n|--------|--------|----------|---------|----|\n`;
-    for (const symbol of this.cfg.pairs) {
-      const symTrades = this.closedTrades.filter(t => t.symbol === symbol);
-      const symWins = symTrades.filter(t => t.netPnl > 0);
-      const symLosses = symTrades.filter(t => t.netPnl <= 0);
-      const symNetPnl = symTrades.reduce((s, t) => s + t.netPnl, 0);
-      const symGrossWin = symWins.reduce((s, t) => s + t.netPnl, 0);
-      const symGrossLoss = Math.abs(symLosses.reduce((s, t) => s + t.netPnl, 0));
-      const symWinRate = symTrades.length > 0 ? (symWins.length / symTrades.length) * 100 : 0;
-      const symPF = symGrossLoss > 0 ? symGrossWin / symGrossLoss : (symGrossWin > 0 ? Infinity : 0);
-      md += `| ${symbol} | ${symTrades.length} | ${symWinRate.toFixed(1)}% | ${fmtUSD(symNetPnl)} | ${symPF === Infinity ? '∞' : symPF.toFixed(2)} |\n`;
     }
 
     md += `\n---\n\n> Pessimistic execution: ${this.cfg.pessimisticExecution ? '**enabled**' : 'disabled'}. `;

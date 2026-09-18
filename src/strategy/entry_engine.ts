@@ -183,7 +183,7 @@ export function runEntryEngine(
 
   // ─── Adım 5: SL Hesaplama ────────────────────────────────
   const stopLoss = calculateStopLoss(
-    ltfCandles, entryPrice, direction, zoneEdge, constraints.tickSize,
+    ltfCandles, entryPrice, direction, zoneEdge, constraints.tickSize, 1.5, config.minSlPct
   );
 
   if (stopLoss === null) {
