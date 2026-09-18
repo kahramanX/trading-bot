@@ -180,6 +180,17 @@ export interface SymbolConstraints {
   maxPrice: number;
 }
 
+export interface SessionBounds {
+  start: string; // "HH:mm"
+  end: string;   // "HH:mm"
+}
+
+export interface AllowedSessions {
+  timezone: string;
+  london: SessionBounds;
+  ny: SessionBounds;
+}
+
 // ─── Config ─────────────────────────────────────────────────
 
 export interface BotConfig {
@@ -212,6 +223,11 @@ export interface BotConfig {
   makerFeePct: number;
   takerFeePct: number;
   slippageTicks: number;
+
+  // Institutional Filters
+  adxPeriod: number;
+  adxThreshold: number;
+  allowedSessions: AllowedSessions;
 
   // Runtime
   dryRun: boolean;

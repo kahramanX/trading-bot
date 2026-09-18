@@ -681,7 +681,7 @@ export async function manageActiveTrade(
     // Entry hala OPEN ise ghost cancel kontrolü yap
     if (trade.entryOrder.status === 'OPEN') {
       // 2.1 Ghost Emir Kontrolü (Setup bozuldu mu?)
-      const htfResult = runHTFFilter(htfCandles, config.htfTimeframe);
+      const htfResult = runHTFFilter(htfCandles, config, config.htfTimeframe);
       const ltfStructure = analyzeMarketStructure(ltfCandles, 5, 5);
 
       let setupBroken = false;
@@ -693,6 +693,24 @@ export async function manageActiveTrade(
       } else if (ltfStructure.lastMSS && ltfStructure.lastMSS.type !== trade.signal.htfBias) {
         setupBroken = true;
         cancelReason = `${config.ltfTimeframe}'de ters yönde MSS (${ltfStructure.lastMSS.type}) algılandı`;
+      }
+
+      // Session Killzone Expiry (Session End Sweep)
+      if (!setupBroken) {
+        const formatter = new Intl.DateTimeFormat('en-GB', {
+          timeZone: config.allowedSessions.timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
+        const currentHHMM = formatter.format(new Date(lastCandle.timestamp));
+        const inLondon = currentHHMM >= config.allowedSessions.london.start && currentHHMM <= config.allowedSessions.london.end;
+        const inNY = currentHHMM >= config.allowedSessions.ny.start && currentHHMM <= config.allowedSessions.ny.end;
+        
+        if (!inLondon && !inNY) {
+          setupBroken = true;
+          cancelReason = `Seans bitti (${currentHHMM}). Pusu iptal ediliyor (Session Killzone Expiry)`;
+        }
       }
 
       if (setupBroken) {

@@ -212,3 +212,78 @@ function countDecimals(value: number): number {
 
   return 0;
 }
+
+/**
+ * ADX (Average Directional Index) hesaplar.
+ * Wilder's Smoothing (RMA) kullanır.
+ *
+ * @param candles - Mum dizisi
+ * @param period - ADX periyodu (varsayılan 14)
+ * @returns ADX değeri veya veri yetersizse null
+ */
+export function calculateADX(candles: Candle[], period: number = 14): number | null {
+  if (candles.length < period * 2) return null; // ADX için en az period * 2 mum gerekir
+
+  const trs: number[] = [];
+  const pdms: number[] = [];
+  const ndms: number[] = [];
+
+  // 1. TR, +DM, -DM hesapla
+  for (let i = 1; i < candles.length; i++) {
+    const current = candles[i]!;
+    const prev = candles[i - 1]!;
+
+    const tr = Math.max(
+      current.high - current.low,
+      Math.abs(current.high - prev.close),
+      Math.abs(current.low - prev.close)
+    );
+    trs.push(tr);
+
+    const upMove = current.high - prev.high;
+    const downMove = prev.low - current.low;
+
+    let pdm = 0;
+    let ndm = 0;
+
+    if (upMove > downMove && upMove > 0) pdm = upMove;
+    if (downMove > upMove && downMove > 0) ndm = downMove;
+
+    pdms.push(pdm);
+    ndms.push(ndm);
+  }
+
+  // 2. İlk RMA değerleri (İlk `period` kadar basit toplam)
+  let smoothedTR = trs.slice(0, period).reduce((a, b) => a + b, 0);
+  let smoothedPDM = pdms.slice(0, period).reduce((a, b) => a + b, 0);
+  let smoothedNDM = ndms.slice(0, period).reduce((a, b) => a + b, 0);
+
+  const dxs: number[] = [];
+
+  // DX hesaplama döngüsü
+  for (let i = period; i < trs.length; i++) {
+    smoothedTR = smoothedTR - (smoothedTR / period) + trs[i]!;
+    smoothedPDM = smoothedPDM - (smoothedPDM / period) + pdms[i]!;
+    smoothedNDM = smoothedNDM - (smoothedNDM / period) + ndms[i]!;
+
+    const pdi = smoothedTR === 0 ? 0 : 100 * (smoothedPDM / smoothedTR);
+    const ndi = smoothedTR === 0 ? 0 : 100 * (smoothedNDM / smoothedTR);
+
+    const diff = Math.abs(pdi - ndi);
+    const sum = pdi + ndi;
+
+    const dx = sum === 0 ? 0 : 100 * (diff / sum);
+    dxs.push(dx);
+  }
+
+  if (dxs.length < period) return null;
+
+  // 3. ADX hesaplama (DX'lerin RMA'sı)
+  let adx = dxs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+
+  for (let i = period; i < dxs.length; i++) {
+    adx = ((adx * (period - 1)) + dxs[i]!) / period;
+  }
+
+  return adx;
+}

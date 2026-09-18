@@ -85,7 +85,15 @@ export function loadConfig(): BotConfig {
 
     minRRRatio: envFloat('MIN_RR_RATIO', 2.5),
     tp1RR:      envFloat('TP1_RR', 2),
-    tp2RR:      envFloat('TP2_RR', 3),
+    tp2RR:      Number(process.env.TP2_RR) || 3,
+
+    adxPeriod:    Number(process.env.ADX_PERIOD) || 14,
+    adxThreshold: Number(process.env.ADX_THRESHOLD) || 20,
+    allowedSessions: {
+      timezone: process.env.TZ || 'Europe/Istanbul',
+      london: { start: '10:00', end: '13:00' },
+      ny: { start: '15:30', end: '19:00' }
+    },
 
     htfTimeframe: process.env['HTF_TIMEFRAME']?.trim() || '4h',
     ltfTimeframe: process.env['LTF_TIMEFRAME']?.trim() || '15m',

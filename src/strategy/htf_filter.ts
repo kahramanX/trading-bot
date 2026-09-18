@@ -4,8 +4,8 @@
 // Range'de nakitte beklenir.
 // ══════════════════════════════════════════════════════════════
 
-import type { Candle, MarketBias } from '../utils/types.js';
-import { calculateEMA } from '../utils/candle_utils.js';
+import type { Candle, MarketBias, BotConfig } from '../utils/types.js';
+import { calculateEMA, calculateADX } from '../utils/candle_utils.js';
 import { analyzeMarketStructure } from './market_structure.js';
 import { logger } from '../utils/logger.js';
 
@@ -15,6 +15,7 @@ export interface HTFFilterResult {
   currentPrice: number;       // Son kapanış fiyatı
   emaDistance: number;         // Fiyat-EMA mesafesi (%)
   structureBias: MarketBias;  // HTF yapı analizi
+  adxValue?: number;          // ADX değeri
   reason: string;             // İnsan okunur açıklama
 }
 
@@ -28,10 +29,11 @@ export interface HTFFilterResult {
  *   4. EMA ve yapı çelişiyorsa = NEUTRAL → işlem yok
  *
  * @param htfCandles - HTF mum verileri (min 210 mum gerekir)
+ * @param config - BotConfig ayarları
  * @param tf - Zaman dilimi etiketi (varsayılan: 'HTF')
  * @returns HTFFilterResult
  */
-export function runHTFFilter(htfCandles: Candle[], tf: string = 'HTF'): HTFFilterResult {
+export function runHTFFilter(htfCandles: Candle[], config: BotConfig, tf: string = 'HTF'): HTFFilterResult {
   const currentPrice = htfCandles[htfCandles.length - 1]!.close;
 
   // ─── EMA(200) Hesapla ────────────────────────────────────
@@ -51,6 +53,10 @@ export function runHTFFilter(htfCandles: Candle[], tf: string = 'HTF'): HTFFilte
   const emaValue = emaValues[emaValues.length - 1]!;
   const emaDistance = ((currentPrice - emaValue) / emaValue) * 100;
 
+  // ─── ADX Filtresi ────────────────────────────────────────
+  const adx = calculateADX(htfCandles, config.adxPeriod);
+  const adxValue = adx !== null ? adx : 0;
+
   // ─── HTF Market Structure Analizi ─────────────────────────
   // Daha büyük pivot'lar (leftBars=10) kullanarak daha anlamlı yapı yakala
   const htfStructure = analyzeMarketStructure(htfCandles, 10, 10);
@@ -65,6 +71,11 @@ export function runHTFFilter(htfCandles: Candle[], tf: string = 'HTF'): HTFFilte
   if (Math.abs(emaDistance) < rangeThreshold) {
     bias = 'NEUTRAL';
     reason = `Price is stuck near EMA(200) (${emaDistance.toFixed(2)}%). Ranging — wait in cash.`;
+  }
+  // Kural 4: ADX Volatilite Filtresi → NEUTRAL
+  else if (adxValue < config.adxThreshold) {
+    bias = 'NEUTRAL';
+    reason = `Market is choppy. ADX(${config.adxPeriod}) is ${adxValue.toFixed(2)}, below threshold of ${config.adxThreshold}. Wait.`;
   }
   // Kural 1: EMA üstü
   else if (currentPrice > emaValue) {
@@ -94,6 +105,7 @@ export function runHTFFilter(htfCandles: Candle[], tf: string = 'HTF'): HTFFilte
     currentPrice,
     emaDistance,
     structureBias,
+    adxValue,
     reason,
   };
 }
@@ -108,6 +120,7 @@ export function logHTFFilter(symbol: string, result: HTFFilterResult): void {
   logger.info('HTF', `[${symbol}] ${biasEmoji} HTF Trend: ${result.bias}`);
   logger.info('HTF', `[${symbol}]   EMA(200): ${logger.formatUSD(result.emaValue)} | ` +
     `Price: ${logger.formatUSD(result.currentPrice)} | ` +
-    `Distance: ${result.emaDistance >= 0 ? '+' : ''}${result.emaDistance.toFixed(2)}%`);
+    `Distance: ${result.emaDistance >= 0 ? '+' : ''}${result.emaDistance.toFixed(2)}% | ` +
+    `ADX: ${result.adxValue?.toFixed(2)}`);
   logger.info('HTF', `[${symbol}]   Structure: ${result.structureBias} | ${result.reason}`);
 }

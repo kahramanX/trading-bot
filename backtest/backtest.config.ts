@@ -65,6 +65,21 @@ export interface BacktestConfig {
 
   /** Lower timeframe for entry signals */
   ltfTimeframe: string;
+
+  // ─── Institutional Filters ────────────────────────────────
+  
+  /** ADX period for volatility filtering */
+  adxPeriod: number;
+  
+  /** Minimum ADX value required to trade */
+  adxThreshold: number;
+  
+  /** Allowed sessions (Killzones) */
+  allowedSessions: {
+    timezone: string;
+    london: { start: string; end: string; };
+    ny: { start: string; end: string; };
+  };
 }
 
 // ─── Default Configuration ──────────────────────────────────
@@ -83,7 +98,7 @@ export const backtestConfig: BacktestConfig = {
 
   slippagePct: 0.03,      // Realistic slippage estimate
   orderTtlBars: 16,       // 16 × 15m = 240 minutes (4 hours = 1 HTF candle) TTL
-  warmupCandles: 100,
+  warmupCandles: 250,
   pessimisticExecution: true,
 
   // ─── R:R — SMC optimized ────────────────────────────
@@ -97,8 +112,17 @@ export const backtestConfig: BacktestConfig = {
   circuitBreakerCooldownHours: 4,
 
   // ─── Timeframes ───
-  htfTimeframe: '4h',
-  ltfTimeframe: '15m',
+  htfTimeframe: '1h',
+  ltfTimeframe: '5m',
+
+  // ─── Institutional Filters ───
+  adxPeriod: 14,
+  adxThreshold: 20,
+  allowedSessions: {
+    timezone: 'Europe/Istanbul',
+    london: { start: '10:00', end: '13:00' },
+    ny: { start: '15:30', end: '19:00' },
+  },
 };
 
 // ─── Synthetic BotConfig Builder ────────────────────────────
@@ -131,6 +155,10 @@ export function buildBotConfig(cfg: BacktestConfig): BotConfig {
     makerFeePct: cfg.makerFeeRate * 100,   // 0.0002 → 0.02
     takerFeePct: cfg.takerFeeRate * 100,   // 0.0005 → 0.05
     slippageTicks: 2,
+
+    adxPeriod: cfg.adxPeriod,
+    adxThreshold: cfg.adxThreshold,
+    allowedSessions: cfg.allowedSessions,
 
     dryRun: true,
   };

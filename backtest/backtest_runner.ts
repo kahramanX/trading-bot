@@ -391,6 +391,27 @@ class BacktestEngine {
     for (const [id, order] of this.pendingOrders) {
       if (order.symbol !== symbol) continue;
 
+      // Session Killzone Expiry (Session End Sweep)
+      const formatter = new Intl.DateTimeFormat('en-GB', {
+        timeZone: this.cfg.allowedSessions.timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+      const currentHHMM = formatter.format(new Date(currentTimestamp));
+      const inLondon = currentHHMM >= this.cfg.allowedSessions.london.start && currentHHMM <= this.cfg.allowedSessions.london.end;
+      const inNY = currentHHMM >= this.cfg.allowedSessions.ny.start && currentHHMM <= this.cfg.allowedSessions.ny.end;
+
+      if (!inLondon && !inNY) {
+        toRemove.push(id);
+        this.diagnostics.ordersExpired++;
+        this.logSystem(
+          `🚫 [${symbol}] SESSION CANCEL — limit ${order.direction} @ ${fmtUSD(order.limitPrice)} ` +
+          `expired due to session end (${currentHHMM})`
+        );
+        continue;
+      }
+
       // Ghost Order TTL — cancel if expired
       if (order.barsSincePlaced > this.cfg.orderTtlBars) {
         toRemove.push(id);
@@ -1234,17 +1255,22 @@ class BacktestEngine {
     md += `| Parameter | Value |\n|-----------|-------|\n`;
     md += `| Initial Balance | ${fmtUSD(this.cfg.initialBalance)} |\n`;
     md += `| Risk Per Trade | ${this.cfg.riskPerTradePct}% |\n`;
+    md += `| Max Daily Loss | ${this.cfg.maxDailyLossPct}% |\n`;
+    md += `| Max Cons. Losses | ${this.cfg.maxConsecutiveLosses} |\n`;
+    md += `| CB Cooldown | ${this.cfg.circuitBreakerCooldownHours} hours |\n`;
+    md += `| TP1 R:R | ${this.cfg.tp1RR} |\n`;
+    md += `| TP2 R:R | ${this.cfg.tp2RR} |\n`;
+    md += `| Min R:R Ratio | ${this.cfg.minRRRatio} |\n`;
     md += `| Pairs | ${this.cfg.pairs.join(', ')} |\n`;
-    md += `| Period | Dynamic (from CSVs) |\n`;
     md += `| HTF / LTF | ${this.cfg.htfTimeframe} / ${this.cfg.ltfTimeframe} |\n`;
     md += `| Maker Fee | ${(this.cfg.makerFeeRate * 100).toFixed(2)}% |\n`;
     md += `| Taker Fee | ${(this.cfg.takerFeeRate * 100).toFixed(2)}% |\n`;
     md += `| Slippage | ${this.cfg.slippagePct}% |\n`;
     md += `| Order TTL | ${this.cfg.orderTtlBars} bars |\n`;
-    md += `| Pessimistic Execution | ${this.cfg.pessimisticExecution ? 'Yes' : 'No'} |\n`;
+    md += `| Pessimistic Exec. | ${this.cfg.pessimisticExecution ? 'Yes' : 'No'} |\n`;
     md += `| Warmup Candles | ${this.cfg.warmupCandles} |\n`;
-    md += `| LTF Window | last ${this.LTF_LOOKBACK} candles |\n`;
-    md += `| HTF Window | last ${this.HTF_LOOKBACK} candles |\n\n`;
+    md += `| ADX Filter | Period: ${this.cfg.adxPeriod} \\| Threshold: ${this.cfg.adxThreshold} |\n`;
+    md += `| Allowed Sessions | TZ: ${this.cfg.allowedSessions.timezone} \\| London: ${this.cfg.allowedSessions.london.start}-${this.cfg.allowedSessions.london.end} \\| NY: ${this.cfg.allowedSessions.ny.start}-${this.cfg.allowedSessions.ny.end} |\n\n`;
 
     md += `## Performance\n\n`;
     md += `| Metric | Value |\n|--------|-------|\n`;
