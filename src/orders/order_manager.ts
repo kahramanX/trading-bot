@@ -21,7 +21,7 @@ import { playSound } from '../utils/sound_player.js';
 import { recordTradeResult } from '../risk/circuit_breaker.js';
 import { runHTFFilter } from '../strategy/htf_filter.js';
 import { analyzeMarketStructure } from '../strategy/market_structure.js';
-import { getExchange } from '../exchange/binance_client.js';
+import { getExchange, fetchPosition } from '../exchange/binance_client.js';
 import { floorToStepSize, roundToTickSize } from '../utils/candle_utils.js';
 import { logger } from '../utils/logger.js';
 import { saveActiveTrades, loadActiveTrades as loadActiveTradesFromDisk } from './trade_persistence.js';
@@ -607,6 +607,48 @@ export async function manageActiveTrade(
 
   const lastCandle = ltfCandles[ltfCandles.length - 1];
   if (!lastCandle) return;
+
+  // 1.5 Gerçek Pozisyon Doğrulaması (True Position Sync)
+  // Bu kontrol, SL emrinin Binance'te "Conditional Order" olması ve tetiklendiğinde fetchOrder'da bulunamaması
+  // (Order does not exist) sorununu çözer. Borsadaki gerçek pozisyon sıfırlanmışsa işlem kapanmıştır!
+  if (!config.dryRun && (trade.entryOrder.status === 'FILLED' || trade.entryOrder.status === 'PARTIALLY_FILLED')) {
+    try {
+      const actualPosSize = await fetchPosition(symbol, config.marketType);
+      
+      if (actualPosSize < constraints.minQty) {
+        logger.warn('ORDER', `[${symbol}] 🚨 Actual position size is 0! Trade was closed externally (SL hit, Liquidated, or Manual Close).`);
+        
+        // 1. Kalan açık emirleri (TP, varsa hayalet emirleri) temizle
+        await cancelGhostOrders(symbol, config);
+        
+        // 2. İşlemi SL olarak (veya harici çıkış) kaydet
+        const exitPrice = trade.stopLossOrder?.price ?? lastCandle.close;
+        const totalQty = trade.entryOrder.filledQuantity || trade.entryOrder.quantity;
+        const pnl = calculateNetPnL(trade.entryOrder.price, exitPrice, totalQty, trade.signal.direction, config, constraints);
+        
+        playSound(pnl > 0 ? 'PROFIT' : 'LOSS');
+        
+        recordTradeResult(cbState, {
+          timestamp: Date.now(),
+          symbol,
+          direction: trade.signal.direction,
+          entryPrice: trade.entryOrder.price,
+          exitPrice,
+          quantity: totalQty,
+          pnl,
+          isWin: pnl > 0,
+          exitReason: 'EXTERNAL',
+        }, config);
+        
+        // 3. Botu temizle
+        clearActiveTrade(symbol);
+        logger.separator();
+        return;
+      }
+    } catch (err: any) {
+      logger.debug('ORDER', `[${symbol}] fetchPosition error during verification: ${err.message}`);
+    }
+  }
 
   // 2. Durum: Giriş Emri Henüz Açık (Beklemede)
   if (trade.entryOrder.status === 'OPEN') {

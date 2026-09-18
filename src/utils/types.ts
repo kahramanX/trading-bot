@@ -125,7 +125,7 @@ export interface TradeResult {
   quantity: number;
   pnl: number;                  // Net kar/zarar ($)
   isWin: boolean;
-  exitReason: 'STOP_LOSS' | 'TAKE_PROFIT_1' | 'TAKE_PROFIT_2' | 'MANUAL' | 'GHOST_CANCEL';
+  exitReason: 'STOP_LOSS' | 'TAKE_PROFIT_1' | 'TAKE_PROFIT_2' | 'MANUAL' | 'GHOST_CANCEL' | 'EXTERNAL';
 }
 
 // ─── Order Management ───────────────────────────────────────

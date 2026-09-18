@@ -247,3 +247,38 @@ export async function getCurrentPrice(symbol: string): Promise<number> {
   );
   return ticker.last ?? 0;
 }
+
+/**
+ * Gets the actual position size from Binance for a specific symbol.
+ * Returns the absolute quantity held. If no position, returns 0.
+ */
+export async function fetchPosition(symbol: string, marketType: 'spot' | 'futures'): Promise<number> {
+  const ex = getExchange();
+  try {
+    if (marketType === 'futures') {
+      const positions = await withRetry(
+        () => ex.fetchPositions([symbol]),
+        `fetchPositions(${symbol})`
+      );
+      if (positions && positions.length > 0) {
+        return Math.abs(positions[0].contracts || 0); // ccxt unified size
+      }
+      return 0;
+    } else {
+      // For spot, find the base currency (e.g. BTC from BTC/USDT)
+      const baseAsset = symbol.split('/')[0];
+      if (!baseAsset) return 0;
+      
+      const balance = await withRetry(
+        () => ex.fetchBalance(),
+        `fetchBalance(${baseAsset})`
+      );
+      
+      return Number(balance[baseAsset]?.total ?? 0);
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logger.warn('SYSTEM', `Failed to fetch position for ${symbol}: ${msg}`);
+    return 0; // On error, we assume 0 or handle it gracefully
+  }
+}
