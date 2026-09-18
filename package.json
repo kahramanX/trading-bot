@@ -1,7 +1,7 @@
 {
-  "name": "trading-bot",
+  "name": "smc-trading-engine",
   "version": "1.0.0",
-  "description": "Price Action based crypto trading bot for Binance Spot Testnet",
+  "description": "Automated Crypto Trading Engine built with TypeScript & CCXT. Implements Smart Money Concepts (SMC), FVG/Breaker Block confluence, multi-timeframe analysis, and stateful risk management.",
   "type": "module",
   "scripts": {
     "dev": "npx tsx src/index.ts",
