@@ -83,19 +83,18 @@ export const backtestConfig: BacktestConfig = {
 
   // ─── Fees — match .env (Futures rates) ───────────────────
   // .env: MAKER_FEE_PCT=0.02, TAKER_FEE_PCT=0.05
-  makerFeeRate: 0.0002,   // 0.02% Futures maker
-  takerFeeRate: 0.0005,   // 0.05% Futures taker
+  makerFeeRate: 0.0002,   // 0.02% Futures maker (Binance Live)
+  takerFeeRate: 0.0005,   // 0.05% Futures taker (Binance Live)
 
-  slippagePct: 0.03,      // Conservative slippage estimate
-  orderTtlBars: 16,       // 16 × 5m = 80 minutes TTL (was 8×15m=120m)
+  slippagePct: 0.03,      // Realistic slippage estimate
+  orderTtlBars: 16,       // 16 × 15m = 240 minutes (4 hours = 1 HTF candle) TTL
   warmupCandles: 250,
   pessimisticExecution: true,
 
-  // ─── R:R — match .env exactly ────────────────────────────
-  // .env: TP1_RR=1.5, TP2_RR=2.5, MIN_RR_RATIO=1.5
-  tp1RR: 2,
-  tp2RR: 3,
-  minRRRatio: 2,
+  // ─── R:R — SMC optimized ────────────────────────────
+  tp1RR: 1.5,             // Quick liquidity grab / derisk
+  tp2RR: 3,               // Runner
+  minRRRatio: 1.5,        // Accept high probability trades
 
   // ─── Risk limits — match .env ────────────────────────────
   maxDailyLossPct: 3,
