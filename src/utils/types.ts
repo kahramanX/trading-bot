@@ -228,6 +228,7 @@ export interface BotConfig {
   // Institutional Filters
   adxPeriod: number;
   adxThreshold: number;
+  useKillzones: boolean;
   allowedSessions: AllowedSessions;
 
   // Runtime

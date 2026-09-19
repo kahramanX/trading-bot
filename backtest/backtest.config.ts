@@ -79,6 +79,9 @@ export interface BacktestConfig {
   /** Minimum ADX value required to trade */
   adxThreshold: number;
 
+  /** Whether to enforce session (Killzone) trading hours */
+  useKillzones: boolean;
+
   /** Allowed sessions (Killzones) */
   allowedSessions: {
     timezone: string;
@@ -134,7 +137,7 @@ export const backtestConfig: BacktestConfig = {
   // ─── Risk limits — match .env ────────────────────────────
   maxDailyLossPct: 3,
   maxConsecutiveLosses: 3,
-  circuitBreakerCooldownHours: 4,
+  circuitBreakerCooldownHours: 1,
   minSlPct: 0.008,
 
   // ─── Timeframes ───────────────────────────────────────────
@@ -144,6 +147,7 @@ export const backtestConfig: BacktestConfig = {
   // ─── Institutional Filters ───
   adxPeriod: 15,
   adxThreshold: 20,
+  useKillzones: false, // Backtestlerde varsayılan olarak açık tutalım
   allowedSessions: {
     timezone: 'Europe/Istanbul',
     london: { start: '10:00', end: '13:00' },
@@ -185,6 +189,7 @@ export function buildBotConfig(cfg: BacktestConfig): BotConfig {
 
     adxPeriod: cfg.adxPeriod,
     adxThreshold: cfg.adxThreshold,
+    useKillzones: cfg.useKillzones,
     allowedSessions: cfg.allowedSessions,
 
     dryRun: true,

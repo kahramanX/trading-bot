@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════════════
 
 import winston from 'winston';
+import type { BotConfig } from './types.js';
 
 // ─── Emoji Prefix'leri (modül bazlı) ────────────────────────
 
@@ -126,29 +127,35 @@ export const logger = {
     console.log(`${COLORS.dim}${'─'.repeat(72)}${COLORS.reset}`);
   },
 
-  banner(config: {
-    pairs: string[];
-    dryRun: boolean;
-    riskPct: number;
-    network?: string;
-    marketType?: string;
-    leverage?: number;
-    htfTimeframe?: string;
-    ltfTimeframe?: string;
-  }): void {
+  banner(config: BotConfig): void {
     const net = (config.network ?? 'demo').toUpperCase();
     const mType = (config.marketType ?? 'futures').toUpperCase();
     const levStr = config.marketType === 'futures' && config.leverage ? ` (${config.leverage}x)` : '';
-    const tfInfo = config.htfTimeframe && config.ltfTimeframe ? `TF: ${config.htfTimeframe}/${config.ltfTimeframe}` : '';
+    const modeStr = config.dryRun ? `${COLORS.yellow}DRY-RUN 🧪${COLORS.reset}` : `${COLORS.green}LIVE 🔴${COLORS.reset}`;
+    const kzStr = config.useKillzones
+      ? `${COLORS.green}Enabled${COLORS.reset} (TZ: ${config.allowedSessions.timezone} | London: ${config.allowedSessions.london.start}-${config.allowedSessions.london.end} | NY: ${config.allowedSessions.ny.start}-${config.allowedSessions.ny.end})`
+      : `${COLORS.dim}Disabled (24/7 Trading)${COLORS.reset}`;
 
     console.log('');
-    console.log(`${COLORS.bright}${COLORS.cyan}╔══════════════════════════════════════════════════════════╗${COLORS.reset}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}║     ⚡ PRICE ACTION TRADING BOT — ${net} ⚡${COLORS.reset}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}╠══════════════════════════════════════════════════════════╣${COLORS.reset}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  Market: ${COLORS.bright}${mType}${levStr}${COLORS.reset}   ${tfInfo ? `${COLORS.yellow}${tfInfo}${COLORS.reset}   ` : ''}Mode: ${config.dryRun ? `${COLORS.yellow}DRY-RUN 🧪${COLORS.reset}` : `${COLORS.green}LIVE 🔴${COLORS.reset}`}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  Pairs: ${COLORS.bright}${config.pairs.length}${COLORS.reset}   Risk: ${COLORS.bright}%${config.riskPct}${COLORS.reset}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}  ${COLORS.dim}${config.pairs.join(', ')}${COLORS.reset}`);
-    console.log(`${COLORS.bright}${COLORS.cyan}╚══════════════════════════════════════════════════════════╝${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}╔══════════════════════════════════════════════════════════════════════════════════╗${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║                  ⚡ PRICE ACTION TRADING BOT — CONFIGURATION ⚡                   ║${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}╠══════════════════════════════════════════════════════════════════════════════════╣${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset} ${COLORS.bright}[NETWORK & MODE]${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}   Network: ${COLORS.bright}${net}${COLORS.reset} │ Market: ${COLORS.bright}${mType}${levStr}${COLORS.reset} │ Mode: ${modeStr}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset} ${COLORS.bright}[RISK & POSITION MANAGEMENT]${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}   Risk / Trade: ${COLORS.bright}%${config.riskPerTradePct}${COLORS.reset} │ Max Daily Loss: ${COLORS.bright}%${config.maxDailyLossPct}${COLORS.reset} │ Max Cons. Losses: ${COLORS.bright}${config.maxConsecutiveLosses}${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}   CB Cooldown: ${COLORS.bright}${config.circuitBreakerCooldownHours}h${COLORS.reset} │ Min SL Distance: ${COLORS.bright}%${(config.minSlPct * 100).toFixed(2)}${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}   TP1 R:R: ${COLORS.bright}1:${config.tp1RR}${COLORS.reset} │ TP2 R:R: ${COLORS.bright}1:${config.tp2RR}${COLORS.reset} │ Min R:R Ratio: ${COLORS.bright}1:${config.minRRRatio}${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset} ${COLORS.bright}[STRATEGY & INSTITUTIONAL FILTERS]${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}   Timeframes: ${COLORS.bright}HTF ${config.htfTimeframe} / LTF ${config.ltfTimeframe}${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}   ADX Filter: ${COLORS.bright}Period ${config.adxPeriod} | Threshold ${config.adxThreshold}${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}   Killzones (Session Filter): ${kzStr}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset} ${COLORS.bright}[ACTIVE TRADING PAIRS (${config.tradingPairs.length})]${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}║${COLORS.reset}   ${COLORS.dim}${config.tradingPairs.join(', ')}${COLORS.reset}`);
+    console.log(`${COLORS.bright}${COLORS.cyan}╚══════════════════════════════════════════════════════════════════════════════════╝${COLORS.reset}`);
     console.log('');
   },
 

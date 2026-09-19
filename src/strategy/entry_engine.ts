@@ -48,24 +48,25 @@ export function runEntryEngine(
   // ─── Adım 0: Session Killzones (Time Filter) ─────────────
   const lastCandle = ltfCandles[ltfCandles.length - 1]!;
   
-  // Format the UTC timestamp to HH:mm in the configured timezone
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    timeZone: config.allowedSessions.timezone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-  const currentHHMM = formatter.format(new Date(lastCandle.timestamp));
+  if (config.useKillzones) {
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: config.allowedSessions.timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const currentHHMM = formatter.format(new Date(lastCandle.timestamp));
 
-  const isWithinSession = (time: string, bounds: {start: string, end: string}) => {
-    return time >= bounds.start && time <= bounds.end;
-  };
+    const isWithinSession = (time: string, bounds: {start: string, end: string}) => {
+      return time >= bounds.start && time <= bounds.end;
+    };
 
-  const inLondon = isWithinSession(currentHHMM, config.allowedSessions.london);
-  const inNY = isWithinSession(currentHHMM, config.allowedSessions.ny);
+    const inLondon = isWithinSession(currentHHMM, config.allowedSessions.london);
+    const inNY = isWithinSession(currentHHMM, config.allowedSessions.ny);
 
-  if (!inLondon && !inNY) {
-    return noSignal(`[${symbol}] Out of session (${currentHHMM}). Only London/NY allowed.`, 'SESSION_FILTER');
+    if (!inLondon && !inNY) {
+      return noSignal(`[${symbol}] Out of session (${currentHHMM}). Only London/NY allowed.`, 'SESSION_FILTER');
+    }
   }
 
   // ─── Adım 1: HTF Filtre ──────────────────────────────────

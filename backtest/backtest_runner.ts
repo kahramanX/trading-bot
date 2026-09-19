@@ -1110,6 +1110,11 @@ class BacktestEngine {
     console.log(`${C.bright}${C.cyan}║${C.reset}  TTL:      ${C.bright}${this.cfg.orderTtlBars} bars${C.reset} (ghost order cancel)`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Pessim.:  ${C.bright}${this.cfg.pessimisticExecution ? 'ON ⚠️' : 'OFF'}${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  Warmup:   ${C.bright}${this.cfg.warmupCandles} candles${C.reset}`);
+    console.log(`${C.bright}${C.cyan}║${C.reset}  ADX:      ${C.bright}Period ${this.cfg.adxPeriod} | Threshold ${this.cfg.adxThreshold}${C.reset}`);
+    const kzHeaderStr = this.cfg.useKillzones
+      ? `ON 🟢 (TZ: ${this.cfg.allowedSessions.timezone} | London: ${this.cfg.allowedSessions.london.start}-${this.cfg.allowedSessions.london.end} | NY: ${this.cfg.allowedSessions.ny.start}-${this.cfg.allowedSessions.ny.end})`
+      : `OFF 🔴 (24/7 Trading)`;
+    console.log(`${C.bright}${C.cyan}║${C.reset}  Killzones:${C.bright} ${kzHeaderStr}${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  LTF win:  ${C.bright}last ${this.LTF_LOOKBACK} candles${C.reset}`);
     console.log(`${C.bright}${C.cyan}║${C.reset}  HTF win:  ${C.bright}last ${this.HTF_LOOKBACK} candles${C.reset}`);
     console.log(`${C.bright}${C.cyan}╚══════════════════════════════════════════════════════════╝${C.reset}`);
@@ -1319,10 +1324,11 @@ class BacktestEngine {
     md += `| Max Daily Loss | ${this.cfg.maxDailyLossPct}% |\n`;
     md += `| Max Cons. Losses | ${this.cfg.maxConsecutiveLosses} |\n`;
     md += `| CB Cooldown | ${this.cfg.circuitBreakerCooldownHours} hours |\n`;
+    md += `| Min Stop Loss | ${(this.cfg.minSlPct * 100).toFixed(2)}% |\n`;
     md += `| Leverage (Simulated) | ${this.botConfig.leverage}x |\n`;
-    md += `| TP1 R:R | ${this.cfg.tp1RR} |\n`;
-    md += `| TP2 R:R | ${this.cfg.tp2RR} |\n`;
-    md += `| Min R:R Ratio | ${this.cfg.minRRRatio} |\n`;
+    md += `| TP1 R:R | 1:${this.cfg.tp1RR} |\n`;
+    md += `| TP2 R:R | 1:${this.cfg.tp2RR} |\n`;
+    md += `| Min R:R Ratio | 1:${this.cfg.minRRRatio} |\n`;
     md += `| Pairs | ${this.cfg.pairs.join(', ')} |\n`;
     md += `| HTF / LTF | ${this.cfg.htfTimeframe} / ${this.cfg.ltfTimeframe} |\n`;
     md += `| Maker Fee | ${(this.cfg.makerFeeRate * 100).toFixed(2)}% |\n`;
@@ -1332,7 +1338,10 @@ class BacktestEngine {
     md += `| Pessimistic Exec. | ${this.cfg.pessimisticExecution ? 'Yes' : 'No'} |\n`;
     md += `| Warmup Candles | ${this.cfg.warmupCandles} |\n`;
     md += `| ADX Filter | Period: ${this.cfg.adxPeriod} \\| Threshold: ${this.cfg.adxThreshold} |\n`;
-    md += `| Allowed Sessions | TZ: ${this.cfg.allowedSessions.timezone} \\| London: ${this.cfg.allowedSessions.london.start}-${this.cfg.allowedSessions.london.end} \\| NY: ${this.cfg.allowedSessions.ny.start}-${this.cfg.allowedSessions.ny.end} |\n\n`;
+    const sessionMdStr = this.cfg.useKillzones
+      ? `Enabled (TZ: ${this.cfg.allowedSessions.timezone} \\| London: ${this.cfg.allowedSessions.london.start}-${this.cfg.allowedSessions.london.end} \\| NY: ${this.cfg.allowedSessions.ny.start}-${this.cfg.allowedSessions.ny.end})`
+      : `Disabled (24/7 Trading)`;
+    md += `| Killzones (Sessions) | ${sessionMdStr} |\n\n`;
 
     // Group tables by symbol
     const renderTable = (data: any[], title: string, periodHeader: string, symbol: string) => {

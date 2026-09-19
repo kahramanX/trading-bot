@@ -5,6 +5,7 @@
 
 import dotenv from 'dotenv';
 import type { BotConfig } from './utils/types.js';
+import { strategyConfig } from './bot.config.js';
 
 dotenv.config();
 
@@ -19,90 +20,12 @@ function requireEnv(key: string): string {
   return value.trim();
 }
 
-function envFloat(key: string, fallback: number): number {
-  const raw = process.env[key];
-  if (!raw || raw.trim() === '') return fallback;
-  const parsed = parseFloat(raw);
-  if (isNaN(parsed)) throw new Error(`❌ Geçersiz sayı değeri: ${key}=${raw}`);
-  return parsed;
-}
-
-function envInt(key: string, fallback: number): number {
-  const raw = process.env[key];
-  if (!raw || raw.trim() === '') return fallback;
-  const parsed = parseInt(raw, 10);
-  if (isNaN(parsed)) throw new Error(`❌ Geçersiz tam sayı değeri: ${key}=${raw}`);
-  return parsed;
-}
-
-/**
- * Virgülle ayrılmış işlem çiftlerini parse eder.
- * Boşlukları temizler, büyük harfe çevirir, '/' kontrolü yapar.
- */
-function parseTradingPairs(raw: string): string[] {
-  const pairs = raw
-    .split(',')
-    .map(p => p.trim().toUpperCase())
-    .filter(p => p.length > 0);
-
-  if (pairs.length === 0) {
-    throw new Error('❌ En az bir işlem çifti belirtilmeli: TRADING_PAIRS=BTC/USDT,ETH/USDT');
-  }
-
-  for (const pair of pairs) {
-    if (!pair.includes('/')) {
-      throw new Error(`❌ Geçersiz çift formatı: "${pair}" — doğru format: BTC/USDT`);
-    }
-  }
-
-  // Duplike kontrolü
-  const unique = [...new Set(pairs)];
-  if (unique.length !== pairs.length) {
-    throw new Error(`❌ Tekrarlanan çiftler tespit edildi: ${raw}`);
-  }
-
-  return pairs;
-}
-
 export function loadConfig(): BotConfig {
-  // ─── Multi-Pair: virgülle ayrılmış liste ─────────────────
-  const rawPairs = requireEnv('TRADING_PAIRS');
-  const tradingPairs = parseTradingPairs(rawPairs);
-
   const config: BotConfig = {
+    ...strategyConfig,
     apiKey:    requireEnv('BINANCE_API_KEY'),
     apiSecret: requireEnv('BINANCE_SECRET'),
     network:   (['live', 'demo'].includes(process.env['NETWORK']?.trim().toLowerCase() || '') ? process.env['NETWORK']?.trim().toLowerCase() as 'live' | 'demo' : 'testnet'),
-    marketType: (process.env['MARKET_TYPE']?.trim().toLowerCase() === 'futures' ? 'futures' : 'spot'),
-    leverage:   envInt('FUTURES_LEVERAGE', 1),
-
-    tradingPairs,
-
-    riskPerTradePct:             envFloat('RISK_PER_TRADE_PCT', 1),
-    maxDailyLossPct:             envFloat('MAX_DAILY_LOSS_PCT', 3),
-    maxConsecutiveLosses:        envInt('MAX_CONSECUTIVE_LOSSES', 3),
-    circuitBreakerCooldownHours: envFloat('CIRCUIT_BREAKER_COOLDOWN_HOURS', 4),
-    minSlPct:                    envFloat('MIN_SL_PCT', 0.002),
-
-    minRRRatio: envFloat('MIN_RR_RATIO', 2.5),
-    tp1RR:      envFloat('TP1_RR', 2),
-    tp2RR:      Number(process.env.TP2_RR) || 3,
-
-    adxPeriod:    Number(process.env.ADX_PERIOD) || 14,
-    adxThreshold: Number(process.env.ADX_THRESHOLD) || 20,
-    allowedSessions: {
-      timezone: process.env.TZ || 'Europe/Istanbul',
-      london: { start: '10:00', end: '13:00' },
-      ny: { start: '15:30', end: '19:00' }
-    },
-
-    htfTimeframe: process.env['HTF_TIMEFRAME']?.trim() || '4h',
-    ltfTimeframe: process.env['LTF_TIMEFRAME']?.trim() || '15m',
-
-    makerFeePct:   envFloat('MAKER_FEE_PCT', 0.1),
-    takerFeePct:   envFloat('TAKER_FEE_PCT', 0.1),
-    slippageTicks: envInt('SLIPPAGE_TICKS', 2),
-
     dryRun: process.argv.includes('--dry-run'),
   };
 

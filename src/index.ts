@@ -23,16 +23,7 @@ async function mainLoop(): Promise<void> {
   const config = loadConfig();
 
   // ─── Banner ───────────────────────────────────────────────
-  logger.banner({
-    pairs: config.tradingPairs,
-    dryRun: config.dryRun,
-    riskPct: config.riskPerTradePct,
-    network: config.network,
-    marketType: config.marketType,
-    leverage: config.leverage,
-    htfTimeframe: config.htfTimeframe,
-    ltfTimeframe: config.ltfTimeframe,
-  });
+  logger.banner(config);
 
   if (config.dryRun) {
     logger.warn('SYSTEM', '🧪 DRY-RUN mode active. Orders WILL NOT be sent to the exchange.');
@@ -41,6 +32,7 @@ async function mainLoop(): Promise<void> {
 
   // ─── Exchange Bağlantısı (tüm çiftlerin constraints'leri yüklenir) ─
   await initExchange(config);
+  logger.info('SYSTEM', `Diagnostics: Connected to ${config.network.toUpperCase()} (${config.marketType.toUpperCase()}). Loaded market constraints for ${config.tradingPairs.length} pairs.`);
 
   // ─── C-01 FIX: Diskten aktif işlemleri yükle (restart dayanıklılığı) ─
   initActiveTrades();
