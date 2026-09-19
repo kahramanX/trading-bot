@@ -93,7 +93,7 @@ export interface BacktestConfig {
 // ─── Default Configuration ──────────────────────────────────
 
 // Add pairs you want to skip here, e.g., ['XAU/USDT']
-const EXCLUDED_PAIRS: string[] = ["XAG/USDT", "XPT/USDT", "COPPER/USDT"];
+const EXCLUDED_PAIRS: string[] = ["XAG/USDT", "XPT/USDT", "COPPER/USDT", "BZ/USDT", "NVDA/USDT", "XAU/USDT", "XPD/USDT"];
 
 function getAvailablePairs(): string[] {
   try {
@@ -125,29 +125,29 @@ export const backtestConfig: BacktestConfig = {
   takerFeeRate: 0.0005,   // 0.05% Futures taker (Binance Live)
 
   slippagePct: 0.03,      // Realistic slippage estimate
-  orderTtlBars: 12,       // 12 bars TTL
+  orderTtlBars: 32,       // 12 bars TTL
   warmupCandles: 250,
   pessimisticExecution: true,
 
   // ─── R:R — SMC optimized ────────────────────────────
-  tp1RR: 2,             // Quick liquidity grab / derisk
-  tp2RR: 3,               // Runner
-  minRRRatio: 2,        // Accept higher probability/reward trades
+  tp1RR: 2,
+  tp2RR: 4,
+  minRRRatio: 3,
 
   // ─── Risk limits — match .env ────────────────────────────
   maxDailyLossPct: 3,
   maxConsecutiveLosses: 3,
-  circuitBreakerCooldownHours: 1,
+  circuitBreakerCooldownHours: 4,
   minSlPct: 0.008,
 
   // ─── Timeframes ───────────────────────────────────────────
-  htfTimeframe: '1h',
-  ltfTimeframe: '5m',
+  htfTimeframe: '4h',
+  ltfTimeframe: '15m',
 
   // ─── Institutional Filters ───
-  adxPeriod: 15,
-  adxThreshold: 20,
-  useKillzones: false, // Backtestlerde varsayılan olarak açık tutalım
+  adxPeriod: 14,
+  adxThreshold: 25,
+  useKillzones: true,
   allowedSessions: {
     timezone: 'Europe/Istanbul',
     london: { start: '10:00', end: '13:00' },
