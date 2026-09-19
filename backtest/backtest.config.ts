@@ -90,7 +90,7 @@ export interface BacktestConfig {
 // ─── Default Configuration ──────────────────────────────────
 
 // Add pairs you want to skip here, e.g., ['XAU/USDT']
-const EXCLUDED_PAIRS: string[] = ["XAG/USDT", "XPT/USDT"];
+const EXCLUDED_PAIRS: string[] = ["XAG/USDT", "XPT/USDT", "COPPER/USDT"];
 
 function getAvailablePairs(): string[] {
   try {
@@ -110,8 +110,8 @@ function getAvailablePairs(): string[] {
 }
 
 export const backtestConfig: BacktestConfig = {
-  initialBalance: 1000,
-  riskPerTradePct: 1,
+  initialBalance: 500,
+  riskPerTradePct: 2,
 
   // ─── Pairs — dynamically loaded from backtest/data ───────────────
   pairs: getAvailablePairs(),
@@ -135,14 +135,14 @@ export const backtestConfig: BacktestConfig = {
   maxDailyLossPct: 3,
   maxConsecutiveLosses: 3,
   circuitBreakerCooldownHours: 4,
-  minSlPct: 0.002,
+  minSlPct: 0.008,
 
   // ─── Timeframes ───────────────────────────────────────────
   htfTimeframe: '1h',
   ltfTimeframe: '5m',
 
   // ─── Institutional Filters ───
-  adxPeriod: 14,
+  adxPeriod: 15,
   adxThreshold: 20,
   allowedSessions: {
     timezone: 'Europe/Istanbul',
@@ -161,7 +161,7 @@ export function buildBotConfig(cfg: BacktestConfig): BotConfig {
     apiSecret: 'BACKTEST_NO_SECRET',
     network: 'demo',
     marketType: 'futures',
-    leverage: 50,
+    leverage: 20,
 
     tradingPairs: cfg.pairs,
 

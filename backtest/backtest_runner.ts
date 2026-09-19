@@ -1244,6 +1244,11 @@ class BacktestEngine {
       updateMap(yearlyMap, year, t);
       updateMap(monthlyMap, month, t);
       updateMap(weeklyMap, week, t);
+
+      const tAll = { ...t, symbol: 'ALL' };
+      updateMap(yearlyMap, year, tAll);
+      updateMap(monthlyMap, month, tAll);
+      updateMap(weeklyMap, week, tAll);
     }
 
     const toArray = (map: Map<string, any>) => Array.from(map.entries()).map(([key, stat]) => {
@@ -1382,6 +1387,9 @@ class BacktestEngine {
     md += `| Best Trade | ${fmtUSD(stats.bestTrade)} |\n`;
     md += `| Worst Trade | ${fmtUSD(stats.worstTrade)} |\n`;
     md += `| Total Fees | ${fmtUSD(stats.totalFees)} |\n\n`;
+
+    md += renderTable(stats.yearlyBreakdown, 'Global Yearly Breakdown (All Pairs)', 'Year', 'ALL');
+    md += renderTable(stats.monthlyBreakdown, 'Global Monthly Breakdown (All Pairs)', 'Month', 'ALL');
 
     md += `## Diagnostics\n\n`;
     md += `| Metric | Count |\n|--------|-------|\n`;

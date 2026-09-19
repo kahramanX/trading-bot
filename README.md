@@ -119,14 +119,30 @@ MAX_CONSECUTIVE_LOSSES=3        # 3 kere üst üste stop olursa şalter iner
 
 ## 🚀 Kullanım Komutları
 
-### Canlı Mod
-Ayarlarınıza göre botu başlatır. (Demo ayarındaysa gerçek para kullanmaz)
+### 1. Backtest (Geçmiş Veri Simülasyonu)
+Botu gerçek piyasada çalıştırmadan önce stratejinizi risk almadan test etmeniz şiddetle tavsiye edilir. Backtest ayarları `.env` dosyasından bağımsız olarak **`backtest/backtest.config.ts`** dosyasından yönetilir.
+
+**Adım 1: Veri İndirme ve Hazırlık**
+Binance üzerinden 1 dakikalık (1m) geçmiş verileri indirir ve stratejiniz için gereken zaman dilimlerine (örn: 1h ve 5m) dönüştürür.
+```bash
+npm run backtest:load
+```
+**Adım 2: Simülasyonu Başlatma**
+Hazırlanan veriler üzerinde botu saniyeler içinde koşturur. Bittiğinde `backtest/results/` klasörü içerisine detaylı bir aylık/yıllık kar/zarar raporu (`summary.md`) ve işlem geçmişi (`trades.json`) kaydeder.
+```bash
+npm run backtest:run
+```
+
+### 2. Canlı Botu Çalıştırma (Live / Testnet)
+Eğer backtest sonuçlarından memnunsanız, botu güncel piyasada çalıştırmak için bu modu kullanın. Bot, temel ayarlarını ve risk limitlerini **`.env`** dosyasından okur.
+
+`.env` dosyanızdaki ağ ayarına göre (`NETWORK=testnet`, `demo` veya `live`) sanal parayla veya gerçek bakiyenizle işlem yapar:
 ```bash
 npm run dev
 ```
 
-### Dry-Run Modu
-Borsaya **gerçek emir göndermeden**, canlı verilerle piyasayı tarar ve ne yapacağını loglar. Stratejiyi denemek için idealdir.
+### 3. Dry-Run Modu
+Borsaya **hiçbir şekilde gerçek emir göndermeden**, canlı akan piyasa verilerini izler ve sinyal bulduğunda "işlem açardım" diyerek terminale log basar. Piyasayı uzaktan izleyip botun reflekslerini görmek için idealdir.
 ```bash
 npm run dry-run
 ```
@@ -135,13 +151,6 @@ npm run dry-run
 Cüzdan bakiyenizi (Spot/Futures ayrı ayrı) ve borsadaki açık/bekleyen limit emirlerinizi hızlıca listeler:
 ```bash
 npx tsx check_status.ts
-```
-
-### Backtest Çalıştırma
-CSV verilerini indirip (1m), yüksek hassasiyetli simülasyon motorunda stratejinizi test etmek için:
-```bash
-npm run backtest:load    # Data hazırlığı ve sentez
-npm run backtest:run     # Simülasyonu başlatır ve rapor üretir
 ```
 
 ### Testleri Çalıştırma
