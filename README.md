@@ -122,8 +122,13 @@ MAX_CONSECUTIVE_LOSSES=3        # 3 kere üst üste stop olursa şalter iner
 ### 1. Backtest (Geçmiş Veri Simülasyonu)
 Botu gerçek piyasada çalıştırmadan önce stratejinizi risk almadan test etmeniz şiddetle tavsiye edilir. Backtest ayarları `.env` dosyasından bağımsız olarak **`backtest/backtest.config.ts`** dosyasından yönetilir.
 
+**Veri Klasörü (`backtest/data/`) Nasıl Çalışır?**
+Sistem, test edilecek coinleri doğrudan `backtest/data/` klasöründeki alt klasörlerden **otomatik olarak tanır.**
+- Test etmek istediğiniz coin için Binance'den (örn: Binance Vision Data) indirdiğiniz `1m` (1 dakikalık) CSV dosyalarını `backtest/data/BTC-USDT/` (veya ilgili parite ismi) şeklinde bir klasör oluşturup içine atmanız yeterlidir.
+- Bot, klasör isimlerini okur ve backtest edilecek pariteleri (`BTC/USDT` vb.) kendisi tespit eder.
+
 **Adım 1: Veri İndirme ve Hazırlık**
-Binance üzerinden 1 dakikalık (1m) geçmiş verileri indirir ve stratejiniz için gereken zaman dilimlerine (örn: 1h ve 5m) dönüştürür.
+İçeriye attığınız 1 dakikalık (1m) ham CSV verilerini okur, ayarlarınıza göre hedef zaman dilimlerine (örn: 1h ve 5m) dönüştürüp birleştirerek aynı klasöre `.json` dosyaları olarak sentezler.
 ```bash
 npm run backtest:load
 ```
