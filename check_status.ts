@@ -1,5 +1,7 @@
 import * as ccxt from 'ccxt';
 import * as dotenv from 'dotenv';
+import { loadConfig } from './src/config.js';
+import { logger } from './src/utils/logger.js';
 
 dotenv.config();
 
@@ -14,13 +16,17 @@ const C = {
 };
 
 async function checkAccountStatus() {
-    // .env dosyasından API anahtarlarını çek
+    // 1. CONFIG & BANNER
+    const config = loadConfig();
+    logger.banner(config);
+
+    // Fetch API keys from .env
     const apiKey = process.env.BINANCE_API_KEY;
     const secret = process.env.BINANCE_SECRET;
-    const network = process.env.NETWORK?.trim().toLowerCase() || 'testnet';
+    const network = config.network;
 
     if (!apiKey || !secret) {
-        console.error(`${C.red}${C.bold}❌ HATA: BINANCE_API_KEY veya BINANCE_SECRET bulunamadı. Lütfen .env dosyanızı kontrol edin.${C.reset}`);
+        console.error(`${C.red}${C.bold}❌ ERROR: BINANCE_API_KEY or BINANCE_SECRET not found. Please check your .env file.${C.reset}`);
         process.exit(1);
     }
 
@@ -28,46 +34,49 @@ async function checkAccountStatus() {
         apiKey: apiKey,
         secret: secret,
         enableRateLimit: true,
-        options: { defaultType: 'spot' }
+        options: { defaultType: 'future' }
     });
 
     if (network === 'testnet') {
         exchange.setSandboxMode(true);
-        console.log(`\n${C.cyan}${C.bold}🔍 Binance Testnet'e bağlanılıyor...${C.reset}\n`);
+        console.log(`\n${C.cyan}${C.bold}🔍 Connecting to Binance Testnet...${C.reset}\n`);
     } else if (network === 'demo') {
         exchange.urls.test = exchange.urls.demo;
         exchange.setSandboxMode(true);
-        console.log(`\n${C.cyan}${C.bold}🔍 Binance DEMO (Mock Trading)'e bağlanılıyor...${C.reset}\n`);
+        console.log(`\n${C.cyan}${C.bold}🔍 Connecting to Binance DEMO (Mock Trading)...${C.reset}\n`);
     } else {
-        console.log(`\n${C.cyan}${C.bold}🔍 Binance LIVE (Gerçek Para)'a bağlanılıyor...${C.reset}\n`);
+        console.log(`\n${C.cyan}${C.bold}🔍 Connecting to Binance LIVE (Real Money)...${C.reset}\n`);
     }
 
     try {
-        // 1. BAKİYE SORGULASI (Spot)
-        const spotBalance = await exchange.fetchBalance({ type: 'spot' });
-        console.log(`${C.gray}==================================================${C.reset}`);
-        console.log(`${C.yellow}${C.bold}💰 SPOT CÜZDAN BAKİYESİ:${C.reset}`);
-        console.log(`${C.green}USDT: ${spotBalance['USDT']?.free || 0} ${C.gray}(Boşta) / ${C.reset}${spotBalance['USDT']?.used || 0} ${C.gray}(İşlemde)${C.reset}`);
-        console.log(`${C.bold}BTC:  ${spotBalance['BTC']?.free || 0} ${C.gray}(Boşta) / ${C.reset}${spotBalance['BTC']?.used || 0} ${C.gray}(İşlemde)${C.reset}`);
-        console.log(`${C.bold}ETH:  ${spotBalance['ETH']?.free || 0} ${C.gray}(Boşta) / ${C.reset}${spotBalance['ETH']?.used || 0} ${C.gray}(İşlemde)${C.reset}`);
-
-        // 2. BAKİYE SORGULASI (Futures)
+        // 2. FUTURES BALANCE & PNL INQUIRY
         try {
             const futureBalance = await exchange.fetchBalance({ type: 'future' });
-            console.log(`\n${C.yellow}${C.bold}📈 FUTURES (VADELİ) CÜZDAN BAKİYESİ:${C.reset}`);
-            console.log(`${C.green}USDT: ${futureBalance['USDT']?.free || 0} ${C.gray}(Boşta) / ${C.reset}${futureBalance['USDT']?.used || 0} ${C.gray}(İşlemde)${C.reset}`);
-            console.log(`${C.bold}BTC:  ${futureBalance['BTC']?.free || 0} ${C.gray}(Boşta) / ${C.reset}${futureBalance['BTC']?.used || 0} ${C.gray}(İşlemde)${C.reset}`);
-            console.log(`${C.bold}ETH:  ${futureBalance['ETH']?.free || 0} ${C.gray}(Boşta) / ${C.reset}${futureBalance['ETH']?.used || 0} ${C.gray}(İşlemde)${C.reset}`);
+            const info = futureBalance.info;
+            
+            console.log(`${C.gray}==================================================${C.reset}`);
+            console.log(`${C.yellow}${C.bold}📈 FUTURES ACCOUNT STATUS:${C.reset}`);
+            
+            const walletBalance = Number(info.totalWalletBalance || 0);
+            const unPnl = Number(info.totalUnrealizedProfit || 0);
+            const marginBalance = Number(info.totalMarginBalance || 0);
+            
+            const unPnlColor = unPnl >= 0 ? C.green : C.red;
+            const pnlSign = unPnl > 0 ? '+' : '';
+            
+            console.log(`${C.green}💰 Wallet Balance (USDT): ${C.bold}$${walletBalance.toFixed(2)}${C.reset}`);
+            console.log(`${unPnlColor}📊 Unrealized Profit/Loss (PnL): ${C.bold}${pnlSign}$${unPnl.toFixed(2)}${C.reset}`);
+            console.log(`${C.cyan}⚖️  Margin Balance (USDT): ${C.bold}$${marginBalance.toFixed(2)}${C.reset}`);
+            
+            console.log(`\n${C.gray}Available (Free): $${(futureBalance['USDT']?.free || 0).toFixed(2)} / In Order (Used): $${(futureBalance['USDT']?.used || 0).toFixed(2)}${C.reset}`);
+            console.log(`${C.gray}==================================================${C.reset}\n`);
         } catch (e: any) {
-            console.log(`\n${C.yellow}${C.bold}📈 FUTURES (VADELİ) CÜZDAN BAKİYESİ:${C.reset}`);
-            console.log(`${C.red}❌ Futures bakiyesi alınamadı: ${e.message.split('\n')[0]}${C.reset}`);
+            console.log(`\n${C.yellow}${C.bold}📈 FUTURES WALLET BALANCE:${C.reset}`);
+            console.log(`${C.red}❌ Failed to fetch futures balance: ${e.message.split('\n')[0]}${C.reset}`);
         }
-        console.log(`${C.gray}==================================================${C.reset}\n`);
-
-
 
     } catch (error) {
-        console.error("❌ Bir hata oluştu:", error);
+        console.error("❌ An error occurred:", error);
     }
 }
 
