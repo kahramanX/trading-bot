@@ -15,10 +15,7 @@ export const strategyConfig: Omit<BotConfig, 'apiKey' | 'apiSecret' | 'network' 
   // ─── İşlem Çiftleri ───────────────────────────────────────
   // Tier 1 + Tier 2 Majör Çiftler (Yüksek likidite, düşük spread)
   tradingPairs: [
-    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'AVAX/USDT',
-    'LINK/USDT', 'XRP/USDT', 'LTC/USDT', 'XLM/USDT', 'NEO/USDT',
-    'BCH/USDT', 'TRX/USDT', 'ETC/USDT', 'DOGE/USDT', 'FXS/USDT',
-    'BULLA/USDT', 'LSK/USDT', 'SYN/USDT', 'BR/USDT', 'AVA/USDT'
+    "BZ/USDT", "NVDA/USDT", "XAU/USDT", "XPD/USDT"
   ],
 
   // ─── Risk Yönetimi ────────────────────────────────────────
@@ -40,7 +37,7 @@ export const strategyConfig: Omit<BotConfig, 'apiKey' | 'apiSecret' | 'network' 
   // ─── Kurumsal Filtreler (Institutional Filters) ───────────
   adxPeriod: 15,                    // ADX hesaplama periyodu
   adxThreshold: 20,                 // İşleme girmek için gereken minimum ADX momentumu
-  
+
   useKillzones: false,              // Kripto pazarı 7/24 açık olduğu için killzone filtrelemesi kapalı
   allowedSessions: {
     timezone: 'Europe/Istanbul',
