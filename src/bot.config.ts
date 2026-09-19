@@ -23,7 +23,7 @@ export const strategyConfig: Omit<BotConfig, 'apiKey' | 'apiSecret' | 'network' 
   maxDailyLossPct: 3,               // Günlük maksimum kayıp yüzdesi (circuit breaker)
   maxConsecutiveLosses: 3,          // Arka arkaya maksimum stop-loss sayısı
   circuitBreakerCooldownHours: 4,   // Şalter atarsa bekleme süresi (saat)
-  minSlPct: 0.008,                  // Minimum Stop-Loss yüzdesi (noise filtreleme, %0.8)
+  minSlPct: 0.008,                  // Minimum Stop-Loss yüzdesi (noise filtreleme, %0.8) - 0.008 önerilir
 
   // ─── R:R Hedefleri ────────────────────────────────────────
   minRRRatio: 2.0,                  // Minimum Risk:Reward oranı
